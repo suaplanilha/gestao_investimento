@@ -12,7 +12,7 @@ const CONFIG = {
 
 const TABLES = {
   clientes: ['uuid', 'id_sequencial', 'data_cadastro', 'status', 'nome', 'idade', 'telefone', 'email', 'cidade', 'estado', 'redes_sociais', 'valor_mensalidade', 'vencimento_dia', 'capital_inicial_contrato'],
-  operacoes: ['uuid', 'cliente_id', 'data_iso', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho'],
+  operacoes: ['uuid', 'cliente_id', 'data_iso', 'status', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho', 'capital_base'],
   saldos: ['uuid', 'cliente_id', 'data_atualizacao', 'saldo_atual'],
   auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json']
 };
@@ -201,8 +201,17 @@ const OperacoesService = {
     const sheet = ss.getSheetByName('operacoes');
     if (!sheet) return [];
     const data = sheet.getDataRange().getValues();
-    data.shift();
-    return data.map(r => ({ data_iso: r[2], lucro_liquido: r[11], cliente_id: r[1] }));
+    const headers = data.shift();
+    const clientes = ClientesService.list();
+    const mapNome = {};
+    clientes.forEach(c => mapNome[c.uuid] = c.nome);
+
+    return data.map(r => {
+      const o = {};
+      headers.forEach((h, i) => o[h] = r[i]);
+      o.nome_cliente = mapNome[o.cliente_id] || 'Não encontrado';
+      return o;
+    });
   },
 
   save(opDTO) {
@@ -210,13 +219,15 @@ const OperacoesService = {
     const sheet = getSheetOrThrow(ss, 'operacoes');
 
     const dto = {
+      uuid: normalizeText(opDTO.uuid),
       cliente_id: normalizeText(opDTO.cliente_id),
+      status: normalizeText(opDTO.status || 'Ativo'),
       contratos: toNumber(opDTO.contratos, 0),
       valor_por_contrato: toNumber(opDTO.valor_por_contrato, CONFIG.VALOR_PONTO),
       pontos_pos: toNumber(opDTO.pontos_pos, 0),
       pontos_neg: toNumber(opDTO.pontos_neg, 0),
-      take: opDTO.take,
-      stop: opDTO.stop,
+      take: toNumber(opDTO.take, 0),
+      stop: toNumber(opDTO.stop, 0),
       capital_base: toNumber(opDTO.capital_base, 0)
     };
 
@@ -229,10 +240,11 @@ const OperacoesService = {
     const lucroLiquido = lucroBruto - taxas;
     const percentual = dto.capital_base > 0 ? (lucroBruto / (dto.capital_base * dto.contratos)) * 100 : 0;
 
-    sheet.appendRow([
-      Utilities.getUuid(),
+    const payload = [
+      dto.uuid || Utilities.getUuid(),
       dto.cliente_id,
       toIsoNow(),
+      dto.status,
       dto.contratos,
       dto.valor_por_contrato,
       dto.pontos_pos,
@@ -242,17 +254,35 @@ const OperacoesService = {
       lucroBruto,
       taxas,
       lucroLiquido,
-      percentual.toFixed(2) + '%'
-    ]);
+      percentual.toFixed(2) + '%',
+      dto.capital_base
+    ];
+
+    const all = sheet.getDataRange().getValues();
+    const headers = all[0] || [];
+    const colUuid = headers.indexOf('uuid');
+    if (dto.uuid && colUuid >= 0) {
+      let updated = false;
+      for (let i = 1; i < all.length; i++) {
+        if (all[i][colUuid] === dto.uuid) {
+          sheet.getRange(i + 1, 1, 1, payload.length).setValues([payload]);
+          updated = true;
+          break;
+        }
+      }
+      if (!updated) sheet.appendRow(payload);
+    } else {
+      sheet.appendRow(payload);
+    }
 
     writeAuditLog({
       entidade: 'operacoes',
-      entidade_id: dto.cliente_id,
-      acao: 'create',
-      payload: { contratos: dto.contratos, lucro_bruto: lucroBruto, taxas, lucro_liquido: lucroLiquido }
+      entidade_id: payload[0],
+      acao: dto.uuid ? 'update' : 'create',
+      payload: { cliente_id: dto.cliente_id, contratos: dto.contratos, lucro_liquido: lucroLiquido, status: dto.status }
     });
 
-    return { success: true };
+    return { success: true, uuid: payload[0] };
   }
 };
 
@@ -268,8 +298,8 @@ const DashboardService = {
     let totalLiquido = 0;
     let totalTaxas = 0;
     ops.forEach(row => {
-      totalTaxas += Number(row[10] || 0);
-      totalLiquido += Number(row[11] || 0);
+      totalTaxas += Number(row[11] || 0);
+      totalLiquido += Number(row[12] || 0);
     });
 
     return { totalLiquido, totalTaxas, totalOperacoes: ops.length };

@@ -130,35 +130,39 @@
     </section>
 
     <!-- TAB OPERACIONAL -->
-    <section v-if="currentTab === 'operacional'" class="glass-card p-6 animate__animated animate__fadeIn max-w-2xl mx-auto">
-      <h2 class="text-xl font-bold mb-6 text-emerald-400 flex items-center gap-2"><span>📈</span> Lançamento Operacional</h2>
-      <div class="space-y-4">
-        <div>
-          <label class="text-[10px] text-slate-500 uppercase ml-1">Investidor Ativo</label>
-          <select v-model="formO.cliente_id" class="glass-input">
-            <option value="">Selecione...</option>
-            <option v-for="c in clientesAtivos" :value="c.uuid">{{ c.nome }}</option>
-          </select>
+    <section v-if="currentTab === 'operacional'" class="animate__animated animate__fadeIn space-y-4">
+      <div class="flex justify-between items-center">
+        <h2 class="text-xl font-bold text-emerald-400 flex items-center gap-2"><span>📈</span> Lançamento Operacional</h2>
+        <button @click="openOperacaoModal()" class="btn-primary px-4 py-2 rounded-lg font-bold">+ Novo Lançamento</button>
+      </div>
+      <div class="glass-card overflow-hidden">
+        <div class="overflow-x-auto table-container">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-800/80 text-slate-400 uppercase font-bold">
+              <tr>
+                <th class="p-3">ID</th><th class="p-3">Data</th><th class="p-3">Nome</th><th class="p-3">Valor Inicial por Contrato</th><th class="p-3">Nº de Contratos</th><th class="p-3">Valor por Contrato</th><th class="p-3">Pontos +</th><th class="p-3">Pontos -</th><th class="p-3">% Ganhos</th><th class="p-3">Take</th><th class="p-3">Stop</th><th class="p-3">Total R$</th><th class="p-3">Status</th><th class="p-3">Ações</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800">
+              <tr v-for="o in operacoes" :key="o.uuid" :class="o.status === 'Inativo' ? 'opacity-50' : ''">
+                <td class="p-3 font-mono text-blue-300">{{ String(o.uuid || '').slice(0,8) }}</td>
+                <td class="p-3">{{ new Date(o.data_iso).toLocaleDateString('pt-BR') }}</td>
+                <td class="p-3">{{ o.nome_cliente }}</td>
+                <td class="p-3">R$ {{ Number(o.capital_base || 0).toFixed(2) }}</td>
+                <td class="p-3">{{ o.contratos }}</td>
+                <td class="p-3">R$ {{ Number(o.valor_por_contrato || 0).toFixed(2) }}</td>
+                <td class="p-3 text-emerald-400">{{ o.pontos_pos }}</td>
+                <td class="p-3 text-red-400">{{ o.pontos_neg }}</td>
+                <td class="p-3">{{ o.percentual_ganho }}</td>
+                <td class="p-3">{{ o.take }}</td>
+                <td class="p-3">{{ o.stop }}</td>
+                <td class="p-3 font-bold">R$ {{ Number(o.lucro_liquido || 0).toFixed(2) }}</td>
+                <td class="p-3">{{ o.status || 'Ativo' }}</td>
+                <td class="p-3"><div class="flex gap-2"><button @click="openOperacaoModal(o)" class="text-blue-400">✏️</button><button @click="inativarOperacao(o)" class="text-amber-400">🚫</button></div></td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Nº Contratos</label>
-            <input v-model="formO.contratos" type="number" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Valor por Contrato</label>
-            <input v-model="formO.valor_por_contrato" step="0.01" type="number" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-emerald-500 uppercase ml-1 font-bold">Pontos (+)</label>
-            <input v-model="formO.pontos_pos" type="number" class="glass-input border-emerald-500/30">
-          </div>
-          <div>
-            <label class="text-[10px] text-red-500 uppercase ml-1 font-bold">Pontos (-)</label>
-            <input v-model="formO.pontos_neg" type="number" class="glass-input border-red-500/30">
-          </div>
-        </div>
-        <button @click="saveOperacao" class="w-full bg-emerald-600 p-4 rounded-xl font-bold mt-4 shadow-lg">Registrar Resultado</button>
       </div>
     </section>
 
@@ -220,6 +224,26 @@
       </div>
     </div>
 
+
+    <div v-if="modalOperacao.open" class="fixed inset-0 z-[110] flex items-center justify-center p-4 modal-overlay animate__animated animate__fadeIn animate__faster">
+      <div class="glass-card w-full max-w-2xl p-6 shadow-2xl relative bg-slate-900 border-white/20">
+        <button @click="modalOperacao.open = false" class="absolute top-4 right-4 text-slate-400 hover:text-white text-2xl">✕</button>
+        <h2 class="text-xl font-bold mb-6 text-emerald-400">{{ formO.uuid ? 'Editar' : 'Novo' }} Lançamento Operacional</h2>
+        <div class="space-y-4">
+          <div><label class="text-[10px] text-slate-500 uppercase ml-1">Investidor Ativo</label><select v-model="formO.cliente_id" class="glass-input"><option value="">Selecione...</option><option v-for="c in clientesAtivos" :value="c.uuid">{{ c.nome }}</option></select></div>
+          <div class="grid grid-cols-2 gap-4">
+            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Nº Contratos</label><input v-model="formO.contratos" type="number" class="glass-input"></div>
+            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Valor por Contrato</label><input v-model="formO.valor_por_contrato" step="0.01" type="number" class="glass-input"></div>
+            <div><label class="text-[10px] text-emerald-500 uppercase ml-1 font-bold">Pontos (+)</label><input v-model="formO.pontos_pos" type="number" class="glass-input border-emerald-500/30"></div>
+            <div><label class="text-[10px] text-red-500 uppercase ml-1 font-bold">Pontos (-)</label><input v-model="formO.pontos_neg" type="number" class="glass-input border-red-500/30"></div>
+            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Take</label><input v-model="formO.take" type="number" class="glass-input"></div>
+            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Stop</label><input v-model="formO.stop" type="number" class="glass-input"></div>
+          </div>
+          <button @click="saveOperacao" class="w-full bg-emerald-600 p-4 rounded-xl font-bold mt-4 shadow-lg">Salvar Lançamento</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <script>
@@ -233,6 +257,7 @@
         const stats = ref({ totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 });
         const busca = ref('');
         const modal = ref({ open: false });
+        const modalOperacao = ref({ open: false });
         const errors = ref({ dashboard: '', clientes: '', operacoes: '' });
         const templates = {
           healthFail: details => `Health-check SAE falhou.\n${details}`,
@@ -247,7 +272,7 @@
         ];
 
         const formC = ref({});
-        const formO = ref({ cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0 });
+        const formO = ref({ uuid: null, cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0, take: 0, stop: 0, status: 'Ativo' });
 
         const resetFormC = () => {
           formC.value = {
@@ -344,6 +369,18 @@
             .salvarCliente(formC.value);
         };
 
+        const openOperacaoModal = (item = null) => {
+          if (item) { formO.value = { ...item }; }
+          else { formO.value = { uuid: null, cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0, take: 0, stop: 0, status: 'Ativo' }; }
+          modalOperacao.value.open = true;
+        };
+
+        const inativarOperacao = (op) => {
+          const payload = { ...op, status: 'Inativo' };
+          loading.value = true;
+          google.script.run.withSuccessHandler(() => { loadData(); }).withFailureHandler(err => { loading.value = false; errors.value.operacoes = err.message; }).registrarOperacao(payload);
+        };
+
         const saveOperacao = () => {
           if (!formO.value.cliente_id) return alert("Selecione um investidor.");
           loading.value = true;
@@ -351,9 +388,9 @@
           formO.value.capital_base = c ? c.capital_inicial_contrato : 0;
           
           google.script.run.withSuccessHandler(() => {
-            formO.value = { cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0 };
+            formO.value = { uuid: null, cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0, take: 0, stop: 0, status: 'Ativo' };
+            modalOperacao.value.open = false;
             loadData();
-            changeTab('dash');
           }).withFailureHandler(err => { loading.value = false; errors.value.operacoes = err.message; alert(err.message); }).registrarOperacao(formO.value);
         };
 
@@ -380,7 +417,7 @@
             alert(templates.healthError(err.message));
           }).healthCheck();
         });
-        return { loading, currentTab, tabs, clientes, stats, busca, modal, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, saveCliente, saveOperacao, toggleStatus, runSetup };
+        return { loading, currentTab, tabs, clientes, operacoes, stats, busca, modal, modalOperacao, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, openOperacaoModal, inativarOperacao, saveCliente, saveOperacao, toggleStatus, runSetup };
       }
     }).mount('#app');
   </script>
