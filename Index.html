@@ -38,6 +38,7 @@
       </div>
       <div class="flex gap-2">
          <button @click="runSetup" class="p-2 glass-card hover:bg-white/10" title="Sincronizar Banco">🔄</button>
+         <button @click="runPreReleaseCheck" class="p-2 glass-card hover:bg-white/10" title="Health-check Release">🧪</button>
       </div>
     </header>
 
@@ -58,15 +59,15 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div class="glass-card p-5 border-l-4 border-emerald-500">
           <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Lucro Líquido</p>
-          <h2 class="text-2xl font-bold text-emerald-400">R$ {{ stats.totalLiquido.toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
+          <h2 class="text-2xl font-bold text-emerald-400">R$ {{ (stats?.totalLiquido ?? 0).toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
         </div>
         <div class="glass-card p-5 border-l-4 border-blue-500">
           <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Total Operações</p>
-          <h2 class="text-2xl font-bold text-blue-400">{{ stats.totalOperacoes }}</h2>
+          <h2 class="text-2xl font-bold text-blue-400">{{ stats?.totalOperacoes ?? 0 }}</h2>
         </div>
         <div class="glass-card p-5 border-l-4 border-slate-500">
           <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Taxas Acumuladas</p>
-          <h2 class="text-2xl font-bold text-slate-300">R$ {{ stats.totalTaxas.toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
+          <h2 class="text-2xl font-bold text-slate-300">R$ {{ (stats?.totalTaxas ?? 0).toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
         </div>
       </div>
       <div class="glass-card p-6">
@@ -342,7 +343,7 @@
           google.script.run.withSuccessHandler(c => {
             clientes.value = c;
             google.script.run.withSuccessHandler(s => {
-              stats.value = s;
+              stats.value = s || { totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 };
               google.script.run.withSuccessHandler(ops => {
                 operacoes.value = ops;
                 loading.value = false;
@@ -399,6 +400,15 @@
           if (id === 'dash') nextTick(() => initChart());
         };
 
+        const runPreReleaseCheck = () => {
+          loading.value = true;
+          google.script.run.withSuccessHandler(r => {
+            loading.value = false;
+            if (r.release_ready) alert('Release check OK: infraestrutura pronta para publicação.');
+            else alert('Release check com pendências: ' + (r.issues || []).map(i => `${i.entidade}: ${i.erro}`).join(' | '));
+          }).withFailureHandler(err => { loading.value = false; alert(err.message); }).runPreReleaseHealthCheck();
+        };
+
         const runSetup = () => {
           loading.value = true;
           google.script.run.withSuccessHandler(m => { alert(m); loadData(); }).setupDatabase();
@@ -417,7 +427,7 @@
             alert(templates.healthError(err.message));
           }).healthCheck();
         });
-        return { loading, currentTab, tabs, clientes, operacoes, stats, busca, modal, modalOperacao, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, openOperacaoModal, inativarOperacao, saveCliente, saveOperacao, toggleStatus, runSetup };
+        return { loading, currentTab, tabs, clientes, operacoes, stats, busca, modal, modalOperacao, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, openOperacaoModal, inativarOperacao, saveCliente, saveOperacao, toggleStatus, runSetup, runPreReleaseCheck };
       }
     }).mount('#app');
   </script>

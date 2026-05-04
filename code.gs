@@ -99,6 +99,26 @@ function healthCheck() {
   };
 }
 
+
+function validateInfrastructureOrThrow() {
+  const report = healthCheck();
+  if (!report.success) {
+    const details = report.details.filter(d => !d.ok).map(d => `${d.entidade}: ${d.erro}`).join(' | ');
+    throw new Error(`Infraestrutura inválida: ${details}`);
+  }
+  return report;
+}
+
+function runPreReleaseHealthCheck() {
+  const report = healthCheck();
+  return {
+    success: report.success,
+    checked_at_iso: toIsoNow(),
+    release_ready: report.success,
+    issues: report.details.filter(d => !d.ok)
+  };
+}
+
 const ClientesService = {
   list() {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -307,8 +327,8 @@ const DashboardService = {
 };
 
 // Wrappers para google.script.run (contrato estável com frontend)
-function getClientes() { return ClientesService.list(); }
-function salvarCliente(clienteDTO) { return ClientesService.save(clienteDTO); }
-function getOperacoes() { return OperacoesService.list(); }
-function registrarOperacao(opDTO) { return OperacoesService.save(opDTO); }
-function getDashboardData() { return DashboardService.getStats(); }
+function getClientes() { validateInfrastructureOrThrow(); return ClientesService.list(); }
+function salvarCliente(clienteDTO) { validateInfrastructureOrThrow(); return ClientesService.save(clienteDTO); }
+function getOperacoes() { validateInfrastructureOrThrow(); return OperacoesService.list(); }
+function registrarOperacao(opDTO) { validateInfrastructureOrThrow(); return OperacoesService.save(opDTO); }
+function getDashboardData() { validateInfrastructureOrThrow(); return DashboardService.getStats(); }
