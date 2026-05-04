@@ -10,6 +10,17 @@ const CONFIG = {
   APP_ID: typeof __app_id !== 'undefined' ? __app_id : 'SaeMiniIndice'
 };
 
+function toNumber(value, fallback) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function getSheetOrThrow(ss, name) {
+  const sheet = ss.getSheetByName(name);
+  if (!sheet) throw new Error(`Aba obrigatória não encontrada: ${name}. Execute setupDatabase().`);
+  return sheet;
+}
+
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
@@ -66,7 +77,7 @@ function getClientes() {
 
 function salvarCliente(cliente) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('clientes');
+  const sheet = getSheetOrThrow(ss, 'clientes');
   const data = sheet.getDataRange().getValues();
   const headers = data[0];
 
@@ -96,15 +107,15 @@ function salvarCliente(cliente) {
     cliente.data_cadastro || new Date().toISOString(),
     cliente.status || 'Ativo',
     cliente.nome,
-    cliente.idade,
+    toNumber(cliente.idade, 0),
     cliente.telefone,
     cliente.email,
     cliente.cidade,
     cliente.estado,
     cliente.redes_sociais,
-    cliente.valor_mensalidade || 0,
-    cliente.vencimento_dia || 10,
-    cliente.capital_inicial_contrato || 500
+    toNumber(cliente.valor_mensalidade, 0),
+    toNumber(cliente.vencimento_dia, 10),
+    toNumber(cliente.capital_inicial_contrato, 500)
   ];
 
   if (cliente.uuid) {
@@ -128,25 +139,28 @@ function salvarCliente(cliente) {
  */
 function registrarOperacao(op) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('operacoes');
+  const sheet = getSheetOrThrow(ss, 'operacoes');
+  const contratos = toNumber(op.contratos, 0);
+  if (contratos <= 0) throw new Error('Quantidade de contratos deve ser maior que zero.');
   
-  const pontosSaldo = Number(op.pontos_pos || 0) - Number(op.pontos_neg || 0);
-  const vlrPorContrato = Number(op.valor_por_contrato || CONFIG.VALOR_PONTO);
+  const pontosSaldo = toNumber(op.pontos_pos, 0) - toNumber(op.pontos_neg, 0);
+  const vlrPorContrato = toNumber(op.valor_por_contrato, CONFIG.VALOR_PONTO);
   
-  const lucroBruto = pontosSaldo * op.contratos * vlrPorContrato;
-  const taxas = op.contratos * CONFIG.TAXA_POR_CONTRATO;
+  const lucroBruto = pontosSaldo * contratos * vlrPorContrato;
+  const taxas = contratos * CONFIG.TAXA_POR_CONTRATO;
   const lucroLiquido = lucroBruto - taxas;
   
   let percentual = 0;
-  if (op.capital_base > 0) {
-    percentual = (lucroBruto / (op.capital_base * op.contratos)) * 100;
+  const capitalBase = toNumber(op.capital_base, 0);
+  if (capitalBase > 0) {
+    percentual = (lucroBruto / (capitalBase * contratos)) * 100;
   }
   
   sheet.appendRow([
     Utilities.getUuid(),
     op.cliente_id,
     new Date().toISOString(),
-    op.contratos,
+    contratos,
     vlrPorContrato,
     op.pontos_pos,
     op.pontos_neg,
