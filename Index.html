@@ -357,7 +357,19 @@
           google.script.run.withSuccessHandler(m => { alert(m); loadData(); }).setupDatabase();
         };
 
-        onMounted(loadData);
+        onMounted(() => {
+          loading.value = true;
+          google.script.run.withSuccessHandler(h => {
+            if (!h.success) {
+              const detalhes = (h.details || []).filter(d => !d.ok).map(d => `${d.entidade}: ${d.erro}`).join("\n");
+              alert(`Health-check SAE falhou.\n${detalhes}`);
+            }
+            loadData();
+          }).withFailureHandler(err => {
+            loading.value = false;
+            alert(`Falha no health-check: ${err.message}`);
+          }).healthCheck();
+        });
         return { loading, currentTab, tabs, clientes, stats, busca, modal, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, saveCliente, saveOperacao, toggleStatus, runSetup };
       }
     }).mount('#app');
