@@ -13,7 +13,8 @@ const CONFIG = {
 const TABLES = {
   clientes: ['uuid', 'id_sequencial', 'data_cadastro', 'status', 'nome', 'idade', 'telefone', 'email', 'cidade', 'estado', 'redes_sociais', 'valor_mensalidade', 'vencimento_dia', 'capital_inicial_contrato'],
   operacoes: ['uuid', 'cliente_id', 'data_iso', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho'],
-  saldos: ['uuid', 'cliente_id', 'data_atualizacao', 'saldo_atual']
+  saldos: ['uuid', 'cliente_id', 'data_atualizacao', 'saldo_atual'],
+  auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json']
 };
 
 function toNumber(value, fallback) {
@@ -29,6 +30,25 @@ function getSheetOrThrow(ss, name) {
   const sheet = ss.getSheetByName(name);
   if (!sheet) throw new Error(`Aba obrigatória não encontrada: ${name}. Execute setupDatabase().`);
   return sheet;
+}
+
+
+
+function toIsoNow() {
+  return new Date().toISOString();
+}
+
+function writeAuditLog(entry) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = getSheetOrThrow(ss, 'auditoria');
+  sheet.appendRow([
+    Utilities.getUuid(),
+    toIsoNow(),
+    normalizeText(entry.entidade),
+    normalizeText(entry.entidade_id),
+    normalizeText(entry.acao),
+    JSON.stringify(entry.payload || {})
+  ]);
 }
 
 function doGet() {
@@ -72,7 +92,7 @@ function healthCheck() {
   const invalid = details.filter(d => !d.ok);
   return {
     success: invalid.length === 0,
-    timestamp_iso: new Date().toISOString(),
+    timestamp_iso: toIsoNow(),
     app_id: CONFIG.APP_ID,
     details,
     message: invalid.length === 0 ? 'Health-check OK' : 'Health-check encontrou inconsistências'
@@ -102,7 +122,7 @@ const ClientesService = {
     const dto = {
       uuid: clienteDTO.uuid || null,
       id_sequencial: toNumber(clienteDTO.id_sequencial, 0),
-      data_cadastro: clienteDTO.data_cadastro || new Date().toISOString(),
+      data_cadastro: clienteDTO.data_cadastro || toIsoNow(),
       status: clienteDTO.status || 'Ativo',
       nome: normalizeText(clienteDTO.nome),
       idade: toNumber(clienteDTO.idade, 0),
@@ -164,6 +184,13 @@ const ClientesService = {
       sheet.appendRow(payload);
     }
 
+    writeAuditLog({
+      entidade: 'clientes',
+      entidade_id: String(payload[0]),
+      acao: dto.uuid ? 'update' : 'create',
+      payload: { id_sequencial: idSequencial, status: dto.status, nome: dto.nome, email: dto.email }
+    });
+
     return { success: true, id: idSequencial };
   }
 };
@@ -205,7 +232,7 @@ const OperacoesService = {
     sheet.appendRow([
       Utilities.getUuid(),
       dto.cliente_id,
-      new Date().toISOString(),
+      toIsoNow(),
       dto.contratos,
       dto.valor_por_contrato,
       dto.pontos_pos,
@@ -217,6 +244,13 @@ const OperacoesService = {
       lucroLiquido,
       percentual.toFixed(2) + '%'
     ]);
+
+    writeAuditLog({
+      entidade: 'operacoes',
+      entidade_id: dto.cliente_id,
+      acao: 'create',
+      payload: { contratos: dto.contratos, lucro_bruto: lucroBruto, taxas, lucro_liquido: lucroLiquido }
+    });
 
     return { success: true };
   }

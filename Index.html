@@ -49,6 +49,10 @@
       </button>
     </nav>
 
+    <div v-if="errors.dashboard" class="glass-card border border-red-500/30 text-red-300 p-3 mb-4 text-sm">Dashboard: {{ errors.dashboard }}</div>
+    <div v-if="errors.clientes" class="glass-card border border-red-500/30 text-red-300 p-3 mb-4 text-sm">Clientes: {{ errors.clientes }}</div>
+    <div v-if="errors.operacoes" class="glass-card border border-red-500/30 text-red-300 p-3 mb-4 text-sm">Operações: {{ errors.operacoes }}</div>
+
     <!-- TAB DASHBOARD -->
     <main v-if="currentTab === 'dash'" class="animate__animated animate__fadeIn space-y-6">
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -229,6 +233,11 @@
         const stats = ref({ totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 });
         const busca = ref('');
         const modal = ref({ open: false });
+        const errors = ref({ dashboard: '', clientes: '', operacoes: '' });
+        const templates = {
+          healthFail: details => `Health-check SAE falhou.\n${details}`,
+          healthError: msg => `Falha no health-check: ${msg}`
+        };
         let chart = null;
 
         const tabs = [
@@ -304,6 +313,7 @@
 
         const loadData = () => {
           loading.value = true;
+          errors.value = { dashboard: '', clientes: '', operacoes: '' };
           google.script.run.withSuccessHandler(c => {
             clientes.value = c;
             google.script.run.withSuccessHandler(s => {
@@ -312,9 +322,9 @@
                 operacoes.value = ops;
                 loading.value = false;
                 if (currentTab.value === 'dash') nextTick(() => initChart());
-              }).getOperacoes();
-            }).getDashboardData();
-          }).getClientes();
+              }).withFailureHandler(err => { errors.value.operacoes = err.message; loading.value = false; }).getOperacoes();
+            }).withFailureHandler(err => { errors.value.dashboard = err.message; loading.value = false; }).getDashboardData();
+          }).withFailureHandler(err => { errors.value.clientes = err.message; loading.value = false; }).getClientes();
         };
 
         const saveCliente = () => {
@@ -344,7 +354,7 @@
             formO.value = { cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0 };
             loadData();
             changeTab('dash');
-          }).registrarOperacao(formO.value);
+          }).withFailureHandler(err => { loading.value = false; errors.value.operacoes = err.message; alert(err.message); }).registrarOperacao(formO.value);
         };
 
         const changeTab = (id) => {
@@ -362,15 +372,15 @@
           google.script.run.withSuccessHandler(h => {
             if (!h.success) {
               const detalhes = (h.details || []).filter(d => !d.ok).map(d => `${d.entidade}: ${d.erro}`).join("\n");
-              alert(`Health-check SAE falhou.\n${detalhes}`);
+              alert(templates.healthFail(detalhes));
             }
             loadData();
           }).withFailureHandler(err => {
             loading.value = false;
-            alert(`Falha no health-check: ${err.message}`);
+            alert(templates.healthError(err.message));
           }).healthCheck();
         });
-        return { loading, currentTab, tabs, clientes, stats, busca, modal, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, saveCliente, saveOperacao, toggleStatus, runSetup };
+        return { loading, currentTab, tabs, clientes, stats, busca, modal, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, saveCliente, saveOperacao, toggleStatus, runSetup };
       }
     }).mount('#app');
   </script>
