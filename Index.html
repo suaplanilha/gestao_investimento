@@ -21,6 +21,8 @@
     .modal-overlay { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
     .table-container { scrollbar-width: thin; }
     .status-badge { padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+    .info-badge { background: rgba(250, 204, 21, 0.18); color: #fde68a; border: 1px solid rgba(250, 204, 21, 0.35); padding: 2px 8px; border-radius: 999px; font-size: 10px; }
+    .btn-disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -110,17 +112,17 @@
                 </td>
                 <td class="p-4">
                   <div class="font-bold text-white">{{ c.nome }}</div>
-                  <div class="text-[10px] text-slate-500 italic">{{ c.idade }} anos | {{ c.redes_sociais || 'Sem redes' }}</div>
+                  <div class="text-[10px] text-blue-200 italic flex gap-2 flex-wrap"><span class="info-badge">{{ c.idade }} anos</span><span class="info-badge">{{ c.redes_sociais || 'Sem redes' }}</span></div>
                 </td>
                 <td class="p-4">
                   <div>{{ c.telefone }}</div>
-                  <div class="text-slate-500">{{ c.email }}</div>
+                  <div class="text-blue-200">{{ c.email }}</div>
                 </td>
                 <td class="p-4 uppercase">{{ c.cidade }} / {{ c.estado }}</td>
                 <td class="p-4">
                   <div class="flex justify-center gap-2">
-                    <button @click="openModal(c)" class="p-2 hover:bg-blue-500/20 rounded-lg text-blue-400" title="Editar">✏️</button>
-                    <button @click="toggleStatus(c)" class="p-2 hover:bg-amber-500/20 rounded-lg text-amber-400" title="Mudar Status">🔄</button>
+                    <button @click="openModal(c)" :disabled="actionLock" :class="['p-2 rounded-lg text-blue-400', actionLock ? 'btn-disabled' : 'hover:bg-blue-500/20']" title="Editar">✏️</button>
+                    <button @click="toggleStatus(c)" :disabled="actionLock" :class="['p-2 rounded-lg text-amber-400', actionLock ? 'btn-disabled' : 'hover:bg-amber-500/20']" title="Mudar Status">🔄</button>
                   </div>
                 </td>
               </tr>
@@ -159,7 +161,7 @@
                 <td class="p-3">{{ o.stop }}</td>
                 <td class="p-3 font-bold">R$ {{ Number(o.lucro_liquido || 0).toFixed(2) }}</td>
                 <td class="p-3">{{ o.status || 'Ativo' }}</td>
-                <td class="p-3"><div class="flex gap-2"><button @click="openOperacaoModal(o)" class="text-blue-400">✏️</button><button @click="inativarOperacao(o)" class="text-amber-400">🚫</button></div></td>
+                <td class="p-3"><div class="flex gap-2"><button @click="openOperacaoModal(o)" :disabled="actionLock" :class="['text-blue-400', actionLock ? 'btn-disabled' : '']">✏️</button><button @click="inativarOperacao(o)" :disabled="actionLock" :class="['text-amber-400', actionLock ? 'btn-disabled' : '']">🚫</button></div></td>
               </tr>
             </tbody>
           </table>
@@ -220,7 +222,7 @@
 
         <div class="flex gap-2">
           <button @click="modal.open = false" class="flex-1 bg-slate-800 p-3 rounded-lg font-bold">Cancelar</button>
-          <button @click="saveCliente" class="flex-[2] btn-primary p-3 rounded-lg font-bold">Salvar Registro</button>
+          <button @click="saveCliente" :disabled="actionLock" :class="['flex-[2] btn-primary p-3 rounded-lg font-bold', actionLock ? 'btn-disabled' : '']">{{ actionLock ? 'Salvando...' : 'Salvar Registro' }}</button>
         </div>
       </div>
     </div>
@@ -240,7 +242,7 @@
             <div><label class="text-[10px] text-slate-500 uppercase ml-1">Take</label><input v-model="formO.take" type="number" class="glass-input"></div>
             <div><label class="text-[10px] text-slate-500 uppercase ml-1">Stop</label><input v-model="formO.stop" type="number" class="glass-input"></div>
           </div>
-          <button @click="saveOperacao" class="w-full bg-emerald-600 p-4 rounded-xl font-bold mt-4 shadow-lg">Salvar Lançamento</button>
+          <button @click="saveOperacao" :disabled="actionLock" :class="['w-full bg-emerald-600 p-4 rounded-xl font-bold mt-4 shadow-lg', actionLock ? 'btn-disabled' : '']">{{ actionLock ? 'Processando...' : 'Salvar Lançamento' }}</button>
         </div>
       </div>
     </div>
@@ -260,6 +262,7 @@
         const modal = ref({ open: false });
         const modalOperacao = ref({ open: false });
         const errors = ref({ dashboard: '', clientes: '', operacoes: '' });
+        const actionLock = ref(false);
         const templates = {
           healthFail: details => `Health-check SAE falhou.\n${details}`,
           healthError: msg => `Falha no health-check: ${msg}`
@@ -302,12 +305,15 @@
         };
 
         const toggleStatus = (cliente) => {
+          if (actionLock.value) return;
+          actionLock.value = true;
           loading.value = true;
           const novoStatus = cliente.status === 'Ativo' ? 'Inativo' : 'Ativo';
           const payload = { ...cliente, status: novoStatus };
           google.script.run.withSuccessHandler(() => {
+            actionLock.value = false;
             loadData();
-          }).salvarCliente(payload);
+          }).withFailureHandler(err => { actionLock.value = false; loading.value = false; alert(err.message); }).salvarCliente(payload);
         };
 
         const initChart = () => {
@@ -357,15 +363,19 @@
           if (!formC.value.nome || !formC.value.telefone || !formC.value.email) {
             return alert("Nome, Telefone e E-mail são obrigatórios.");
           }
+          if (actionLock.value) return;
+          actionLock.value = true;
           loading.value = true;
           google.script.run
             .withSuccessHandler(() => {
               modal.value.open = false;
+              actionLock.value = false;
               loadData();
             })
             .withFailureHandler(err => {
               loading.value = false;
               alert(err.message);
+              actionLock.value = false;
             })
             .salvarCliente(formC.value);
         };
@@ -377,13 +387,17 @@
         };
 
         const inativarOperacao = (op) => {
+          if (actionLock.value) return;
           const payload = { ...op, status: 'Inativo' };
+          actionLock.value = true;
           loading.value = true;
-          google.script.run.withSuccessHandler(() => { loadData(); }).withFailureHandler(err => { loading.value = false; errors.value.operacoes = err.message; }).registrarOperacao(payload);
+          google.script.run.withSuccessHandler(() => { actionLock.value = false; loadData(); }).withFailureHandler(err => { actionLock.value = false; loading.value = false; errors.value.operacoes = err.message; }).registrarOperacao(payload);
         };
 
         const saveOperacao = () => {
           if (!formO.value.cliente_id) return alert("Selecione um investidor.");
+          if (actionLock.value) return;
+          actionLock.value = true;
           loading.value = true;
           const c = clientes.value.find(x => x.uuid === formO.value.cliente_id);
           formO.value.capital_base = c ? c.capital_inicial_contrato : 0;
@@ -391,8 +405,9 @@
           google.script.run.withSuccessHandler(() => {
             formO.value = { uuid: null, cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0, take: 0, stop: 0, status: 'Ativo' };
             modalOperacao.value.open = false;
+            actionLock.value = false;
             loadData();
-          }).withFailureHandler(err => { loading.value = false; errors.value.operacoes = err.message; alert(err.message); }).registrarOperacao(formO.value);
+          }).withFailureHandler(err => { actionLock.value = false; loading.value = false; errors.value.operacoes = err.message; alert(err.message); }).registrarOperacao(formO.value);
         };
 
         const changeTab = (id) => {
@@ -427,7 +442,7 @@
             alert(templates.healthError(err.message));
           }).healthCheck();
         });
-        return { loading, currentTab, tabs, clientes, operacoes, stats, busca, modal, modalOperacao, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, openOperacaoModal, inativarOperacao, saveCliente, saveOperacao, toggleStatus, runSetup, runPreReleaseCheck };
+        return { loading, actionLock, currentTab, tabs, clientes, operacoes, stats, busca, modal, modalOperacao, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, openOperacaoModal, inativarOperacao, saveCliente, saveOperacao, toggleStatus, runSetup, runPreReleaseCheck };
       }
     }).mount('#app');
   </script>
