@@ -176,27 +176,28 @@ const ClientesService = {
       idSequencial = ids.length > 0 ? Math.max(...ids) + 1 : 1;
     }
 
-    const payload = [
-      dto.uuid || Utilities.getUuid(),
-      idSequencial,
-      dto.data_cadastro,
-      dto.status,
-      dto.nome,
-      dto.idade,
-      dto.telefone,
-      dto.email,
-      dto.cidade,
-      dto.estado,
-      dto.redes_sociais,
-      dto.valor_mensalidade,
-      dto.vencimento_dia,
-      dto.capital_inicial_contrato
-    ];
+    const entity = {
+      uuid: dto.uuid || Utilities.getUuid(),
+      id_sequencial: idSequencial,
+      data_cadastro: dto.data_cadastro,
+      status: dto.status,
+      nome: dto.nome,
+      idade: dto.idade,
+      telefone: dto.telefone,
+      email: dto.email,
+      cidade: dto.cidade,
+      estado: dto.estado,
+      redes_sociais: dto.redes_sociais,
+      valor_mensalidade: dto.valor_mensalidade,
+      vencimento_dia: dto.vencimento_dia,
+      capital_inicial_contrato: dto.capital_inicial_contrato
+    };
+    const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity, h) ? entity[h] : '');
 
     if (dto.uuid) {
       for (let i = 1; i < data.length; i++) {
         if (data[i][colUuid] === dto.uuid) {
-          sheet.getRange(i + 1, 1, 1, payload.length).setValues([payload]);
+          sheet.getRange(i + 1, 1, 1, headers.length).setValues([payload]);
           break;
         }
       }
@@ -206,7 +207,7 @@ const ClientesService = {
 
     writeAuditLog({
       entidade: 'clientes',
-      entidade_id: String(payload[0]),
+      entidade_id: String(entity.uuid),
       acao: dto.uuid ? 'update' : 'create',
       payload: { id_sequencial: idSequencial, status: dto.status, nome: dto.nome, email: dto.email }
     });
@@ -260,32 +261,33 @@ const OperacoesService = {
     const lucroLiquido = lucroBruto - taxas;
     const percentual = dto.capital_base > 0 ? (lucroBruto / (dto.capital_base * dto.contratos)) * 100 : 0;
 
-    const payload = [
-      dto.uuid || Utilities.getUuid(),
-      dto.cliente_id,
-      toIsoNow(),
-      dto.status,
-      dto.contratos,
-      dto.valor_por_contrato,
-      dto.pontos_pos,
-      dto.pontos_neg,
-      dto.take,
-      dto.stop,
-      lucroBruto,
-      taxas,
-      lucroLiquido,
-      percentual.toFixed(2) + '%',
-      dto.capital_base
-    ];
-
     const all = sheet.getDataRange().getValues();
     const headers = all[0] || [];
+    const entity = {
+      uuid: dto.uuid || Utilities.getUuid(),
+      cliente_id: dto.cliente_id,
+      data_iso: toIsoNow(),
+      status: dto.status,
+      contratos: dto.contratos,
+      valor_por_contrato: dto.valor_por_contrato,
+      pontos_pos: dto.pontos_pos,
+      pontos_neg: dto.pontos_neg,
+      take: dto.take,
+      stop: dto.stop,
+      lucro_bruto: lucroBruto,
+      taxas: taxas,
+      lucro_liquido: lucroLiquido,
+      percentual_ganho: percentual.toFixed(2) + '%',
+      capital_base: dto.capital_base,
+      pontos: dto.pontos_pos - dto.pontos_neg
+    };
+    const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity, h) ? entity[h] : '');
     const colUuid = headers.indexOf('uuid');
     if (dto.uuid && colUuid >= 0) {
       let updated = false;
       for (let i = 1; i < all.length; i++) {
         if (all[i][colUuid] === dto.uuid) {
-          sheet.getRange(i + 1, 1, 1, payload.length).setValues([payload]);
+          sheet.getRange(i + 1, 1, 1, headers.length).setValues([payload]);
           updated = true;
           break;
         }
@@ -297,7 +299,7 @@ const OperacoesService = {
 
     writeAuditLog({
       entidade: 'operacoes',
-      entidade_id: payload[0],
+      entidade_id: entity.uuid,
       acao: dto.uuid ? 'update' : 'create',
       payload: { cliente_id: dto.cliente_id, contratos: dto.contratos, lucro_liquido: lucroLiquido, status: dto.status }
     });
@@ -312,17 +314,19 @@ const DashboardService = {
     const opSheet = ss.getSheetByName('operacoes');
     if (!opSheet || opSheet.getLastRow() < 2) return { totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 };
 
-    const ops = opSheet.getDataRange().getValues();
-    ops.shift();
+    const data = opSheet.getDataRange().getValues();
+    const headers = data.shift();
+    const colTaxas = headers.indexOf('taxas');
+    const colLiquido = headers.indexOf('lucro_liquido');
 
     let totalLiquido = 0;
     let totalTaxas = 0;
-    ops.forEach(row => {
-      totalTaxas += Number(row[11] || 0);
-      totalLiquido += Number(row[12] || 0);
+    data.forEach(row => {
+      totalTaxas += Number(row[colTaxas] || 0);
+      totalLiquido += Number(row[colLiquido] || 0);
     });
 
-    return { totalLiquido, totalTaxas, totalOperacoes: ops.length };
+    return { totalLiquido, totalTaxas, totalOperacoes: data.length };
   }
 };
 
