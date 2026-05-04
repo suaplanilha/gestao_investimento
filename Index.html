@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <title>SAE - Gestão de Investimentos</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+  <style>
+    :root { --glass: rgba(255, 255, 255, 0.05); --glass-border: rgba(255, 255, 255, 0.12); --accent: #3b82f6; }
+    body { background: #0f172a; color: #f1f5f9; font-family: 'Inter', sans-serif; min-height: 100vh; overflow-x: hidden; }
+    .glass-card { background: var(--glass); backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 1rem; }
+    .glass-input { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); color: white; border-radius: 0.5rem; padding: 0.6rem 0.8rem; outline: none; width: 100%; font-size: 0.875rem; }
+    .glass-input:focus { border-color: var(--accent); }
+    select.glass-input option { background: #1e293b; color: white; }
+    .btn-primary { background: #2563eb; transition: all 0.2s; }
+    .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+    .loader-google { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { 100% { transform: rotate(360deg); } }
+    .modal-overlay { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
+    .table-container { scrollbar-width: thin; }
+    .status-badge { padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+  <div id="app" class="p-4 md:p-6 max-w-6xl mx-auto mb-20">
+    
+    <div v-if="loading" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60">
+      <div class="loader-google"></div>
+    </div>
+
+    <!-- Header Principal -->
+    <header class="flex justify-between items-center mb-8">
+      <div>
+        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">Apollo SAE</h1>
+        <p class="text-slate-500 text-xs tracking-widest uppercase">Investment Management</p>
+      </div>
+      <div class="flex gap-2">
+         <button @click="runSetup" class="p-2 glass-card hover:bg-white/10" title="Sincronizar Banco">🔄</button>
+      </div>
+    </header>
+
+    <!-- Tabs Estilo SAE -->
+    <nav class="flex gap-2 mb-8 overflow-x-auto pb-2 no-scrollbar">
+      <button v-for="t in tabs" :key="t.id" @click="changeTab(t.id)"
+        :class="['px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm font-medium', currentTab === t.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700']">
+        <span>{{ t.icon }}</span> {{ t.name }}
+      </button>
+    </nav>
+
+    <!-- TAB DASHBOARD -->
+    <main v-if="currentTab === 'dash'" class="animate__animated animate__fadeIn space-y-6">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="glass-card p-5 border-l-4 border-emerald-500">
+          <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Lucro Líquido</p>
+          <h2 class="text-2xl font-bold text-emerald-400">R$ {{ stats.totalLiquido.toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
+        </div>
+        <div class="glass-card p-5 border-l-4 border-blue-500">
+          <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Total Operações</p>
+          <h2 class="text-2xl font-bold text-blue-400">{{ stats.totalOperacoes }}</h2>
+        </div>
+        <div class="glass-card p-5 border-l-4 border-slate-500">
+          <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Taxas Acumuladas</p>
+          <h2 class="text-2xl font-bold text-slate-300">R$ {{ stats.totalTaxas.toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
+        </div>
+      </div>
+      <div class="glass-card p-6">
+        <div class="h-80 w-full"><canvas id="mainChart"></canvas></div>
+      </div>
+    </main>
+
+    <!-- TAB INVESTIDORES (LISTA E MODAL) -->
+    <section v-if="currentTab === 'investidores'" class="animate__animated animate__fadeIn space-y-4">
+      <div class="flex flex-col md:flex-row justify-between gap-4">
+        <h2 class="text-xl font-bold flex items-center gap-2">Gestão de Investidores <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">{{ clientes.length }}</span></h2>
+        <div class="flex gap-2">
+          <input v-model="busca" class="glass-input !w-64" placeholder="Buscar por nome ou e-mail...">
+          <button @click="openModal()" class="btn-primary px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg">
+            <span>➕</span> Novo
+          </button>
+        </div>
+      </div>
+
+      <div class="glass-card overflow-hidden">
+        <div class="overflow-x-auto table-container">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-800/80 text-slate-400 uppercase font-bold">
+              <tr>
+                <th class="p-4">ID</th>
+                <th class="p-4">Data</th>
+                <th class="p-4">Status</th>
+                <th class="p-4">Investidor</th>
+                <th class="p-4">Contato</th>
+                <th class="p-4">Localização</th>
+                <th class="p-4 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800">
+              <tr v-for="c in clientesFiltrados" :key="c.uuid" class="hover:bg-white/5 transition" :class="c.status === 'Inativo' ? 'opacity-50' : ''">
+                <td class="p-4 font-mono text-blue-400">#{{ String(c.id_sequencial).padStart(4, '0') }}</td>
+                <td class="p-4">{{ new Date(c.data_cadastro).toLocaleDateString('pt-BR') }}</td>
+                <td class="p-4">
+                  <span :class="['status-badge', c.status === 'Ativo' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400']">{{ c.status }}</span>
+                </td>
+                <td class="p-4">
+                  <div class="font-bold text-white">{{ c.nome }}</div>
+                  <div class="text-[10px] text-slate-500 italic">{{ c.idade }} anos | {{ c.redes_sociais || 'Sem redes' }}</div>
+                </td>
+                <td class="p-4">
+                  <div>{{ c.telefone }}</div>
+                  <div class="text-slate-500">{{ c.email }}</div>
+                </td>
+                <td class="p-4 uppercase">{{ c.cidade }} / {{ c.estado }}</td>
+                <td class="p-4">
+                  <div class="flex justify-center gap-2">
+                    <button @click="openModal(c)" class="p-2 hover:bg-blue-500/20 rounded-lg text-blue-400" title="Editar">✏️</button>
+                    <button @click="toggleStatus(c)" class="p-2 hover:bg-amber-500/20 rounded-lg text-amber-400" title="Mudar Status">🔄</button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB OPERACIONAL -->
+    <section v-if="currentTab === 'operacional'" class="glass-card p-6 animate__animated animate__fadeIn max-w-2xl mx-auto">
+      <h2 class="text-xl font-bold mb-6 text-emerald-400 flex items-center gap-2"><span>📈</span> Lançamento Operacional</h2>
+      <div class="space-y-4">
+        <div>
+          <label class="text-[10px] text-slate-500 uppercase ml-1">Investidor Ativo</label>
+          <select v-model="formO.cliente_id" class="glass-input">
+            <option value="">Selecione...</option>
+            <option v-for="c in clientesAtivos" :value="c.uuid">{{ c.nome }}</option>
+          </select>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Nº Contratos</label>
+            <input v-model="formO.contratos" type="number" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Valor por Contrato</label>
+            <input v-model="formO.valor_por_contrato" step="0.01" type="number" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-emerald-500 uppercase ml-1 font-bold">Pontos (+)</label>
+            <input v-model="formO.pontos_pos" type="number" class="glass-input border-emerald-500/30">
+          </div>
+          <div>
+            <label class="text-[10px] text-red-500 uppercase ml-1 font-bold">Pontos (-)</label>
+            <input v-model="formO.pontos_neg" type="number" class="glass-input border-red-500/30">
+          </div>
+        </div>
+        <button @click="saveOperacao" class="w-full bg-emerald-600 p-4 rounded-xl font-bold mt-4 shadow-lg">Registrar Resultado</button>
+      </div>
+    </section>
+
+    <!-- MODAL CADASTRO/EDIÇÃO INVESTIDOR -->
+    <div v-if="modal.open" class="fixed inset-0 z-[110] flex items-center justify-center p-4 modal-overlay animate__animated animate__fadeIn animate__faster">
+      <div class="glass-card w-full max-w-2xl p-6 shadow-2xl relative bg-slate-900 border-white/20">
+        <button @click="modal.open = false" class="absolute top-4 right-4 text-slate-400 hover:text-white text-2xl">✕</button>
+        
+        <h2 class="text-xl font-bold mb-6 text-blue-400">{{ formC.uuid ? 'Editar' : 'Cadastrar' }} Investidor</h2>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="md:col-span-2">
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Nome Completo</label>
+            <input v-model="formC.nome" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Idade</label>
+            <input v-model="formC.idade" type="number" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Telefone (Fixo/Whats)</label>
+            <input v-model="formC.telefone" class="glass-input" placeholder="(00) 00000-0000">
+          </div>
+          <div class="md:col-span-2">
+            <label class="text-[10px] text-slate-500 uppercase ml-1">E-mail</label>
+            <input v-model="formC.email" type="email" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Cidade</label>
+            <input v-model="formC.cidade" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Estado (UF)</label>
+            <input v-model="formC.estado" class="glass-input" maxlength="2">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Redes Sociais</label>
+            <input v-model="formC.redes_sociais" class="glass-input" placeholder="@usuario">
+          </div>
+          <div class="md:col-span-3 h-[1px] bg-white/10 my-2"></div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Mensalidade (R$)</label>
+            <input v-model="formC.valor_mensalidade" type="number" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-500 uppercase ml-1">Vencimento (Dia)</label>
+            <input v-model="formC.vencimento_dia" type="number" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-blue-400 uppercase ml-1 font-bold">Capital/Contrato</label>
+            <input v-model="formC.capital_inicial_contrato" type="number" class="glass-input border-blue-500/30">
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="modal.open = false" class="flex-1 bg-slate-800 p-3 rounded-lg font-bold">Cancelar</button>
+          <button @click="saveCliente" class="flex-[2] btn-primary p-3 rounded-lg font-bold">Salvar Registro</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const { createApp, ref, onMounted, computed, nextTick } = Vue;
+    createApp({
+      setup() {
+        const loading = ref(false);
+        const currentTab = ref('dash');
+        const clientes = ref([]);
+        const operacoes = ref([]);
+        const stats = ref({ totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 });
+        const busca = ref('');
+        const modal = ref({ open: false });
+        let chart = null;
+
+        const tabs = [
+          { id: 'dash', name: 'Dashboard', icon: '📊' },
+          { id: 'investidores', name: 'Investidores', icon: '👥' },
+          { id: 'operacional', name: 'Operacional', icon: '📈' }
+        ];
+
+        const formC = ref({});
+        const formO = ref({ cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0 });
+
+        const resetFormC = () => {
+          formC.value = {
+            uuid: null,
+            data_cadastro: new Date().toISOString(),
+            status: 'Ativo',
+            nome: '', idade: '', telefone: '', email: '', cidade: '', estado: '', redes_sociais: '',
+            valor_mensalidade: 100, vencimento_dia: 10, capital_inicial_contrato: 500
+          };
+        };
+
+        const clientesFiltrados = computed(() => {
+          const b = busca.value.toLowerCase();
+          return clientes.value.filter(c => c.nome.toLowerCase().includes(b) || c.email.toLowerCase().includes(b));
+        });
+
+        const clientesAtivos = computed(() => clientes.value.filter(c => c.status === 'Ativo'));
+
+        const openModal = (item = null) => {
+          if (item) {
+            formC.value = { ...item };
+          } else {
+            resetFormC();
+          }
+          modal.value.open = true;
+        };
+
+        const toggleStatus = (cliente) => {
+          loading.value = true;
+          const novoStatus = cliente.status === 'Ativo' ? 'Inativo' : 'Ativo';
+          const payload = { ...cliente, status: novoStatus };
+          google.script.run.withSuccessHandler(() => {
+            loadData();
+          }).salvarCliente(payload);
+        };
+
+        const initChart = () => {
+          const ctx = document.getElementById('mainChart');
+          if (!ctx || operacoes.value.length === 0) return;
+          if (chart) chart.destroy();
+          
+          const labels = operacoes.value.map(o => new Date(o.data_iso).toLocaleDateString('pt-BR')).slice(-20);
+          const valores = operacoes.value.map(o => o.lucro_liquido).slice(-20);
+
+          chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+              labels,
+              datasets: [{
+                label: 'Resultados (R$)',
+                data: valores,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                tension: 0.4, fill: true, pointRadius: 4
+              }]
+            },
+            options: { 
+              responsive: true, maintainAspectRatio: false,
+              scales: { y: { grid: { color: 'rgba(255,255,255,0.05)' } }, x: { grid: { display: false } } }
+            }
+          });
+        };
+
+        const loadData = () => {
+          loading.value = true;
+          google.script.run.withSuccessHandler(c => {
+            clientes.value = c;
+            google.script.run.withSuccessHandler(s => {
+              stats.value = s;
+              google.script.run.withSuccessHandler(ops => {
+                operacoes.value = ops;
+                loading.value = false;
+                if (currentTab.value === 'dash') nextTick(() => initChart());
+              }).getOperacoes();
+            }).getDashboardData();
+          }).getClientes();
+        };
+
+        const saveCliente = () => {
+          if (!formC.value.nome || !formC.value.telefone || !formC.value.email) {
+            return alert("Nome, Telefone e E-mail são obrigatórios.");
+          }
+          loading.value = true;
+          google.script.run
+            .withSuccessHandler(() => {
+              modal.value.open = false;
+              loadData();
+            })
+            .withFailureHandler(err => {
+              loading.value = false;
+              alert(err.message);
+            })
+            .salvarCliente(formC.value);
+        };
+
+        const saveOperacao = () => {
+          if (!formO.value.cliente_id) return alert("Selecione um investidor.");
+          loading.value = true;
+          const c = clientes.value.find(x => x.uuid === formO.value.cliente_id);
+          formO.value.capital_base = c ? c.capital_inicial_contrato : 0;
+          
+          google.script.run.withSuccessHandler(() => {
+            formO.value = { cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0 };
+            loadData();
+            changeTab('dash');
+          }).registrarOperacao(formO.value);
+        };
+
+        const changeTab = (id) => {
+          currentTab.value = id;
+          if (id === 'dash') nextTick(() => initChart());
+        };
+
+        const runSetup = () => {
+          loading.value = true;
+          google.script.run.withSuccessHandler(m => { alert(m); loadData(); }).setupDatabase();
+        };
+
+        onMounted(loadData);
+        return { loading, currentTab, tabs, clientes, stats, busca, modal, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, saveCliente, saveOperacao, toggleStatus, runSetup };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
