@@ -15,7 +15,7 @@ const TABLES = {
   operacoes: ['uuid', 'id_usuario', 'cliente_id', 'data_iso', 'status', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho', 'capital_base'],
   saldos: ['uuid', 'cliente_id', 'data_atualizacao', 'saldo_atual'],
   auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json'],
-  anotacoes: ['uuid','id','data','nome','tel','email','cidade','estado','status','pagamento_valor','data_pagamento','data_desligamento']
+  anotacoes: ['uuid','cliente_id','pagamento_valor','data_pagamento','data_desligamento','observacao']
 };
 
 function toNumber(value, fallback) {
@@ -432,9 +432,67 @@ function getDashboardByCliente(clienteId) {
   return { labels, metas, pontos, valores };
 }
 
+
+const AnotacoesService = {
+  list() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('anotacoes');
+    if (!sheet || sheet.getLastRow() < 2) return [];
+    const data = sheet.getDataRange().getValues();
+    const headers = data.shift();
+    const clientes = ClientesService.list();
+    const mapC = {};
+    clientes.forEach(c => mapC[c.uuid] = c);
+    return data.map(r => {
+      const raw = {};
+      headers.forEach((h,i)=>raw[h]=r[i]);
+      const c = mapC[raw.cliente_id] || {};
+      return {
+        uuid: raw.uuid,
+        cliente_id: raw.cliente_id,
+        id: c.id_sequencial || '',
+        data: c.data_cadastro || '',
+        nome: c.nome || '',
+        tel: c.telefone || '',
+        email: c.email || '',
+        cidade: c.cidade || '',
+        estado: c.estado || '',
+        status: c.status || 'POTENCIAL',
+        pagamento_valor: raw.pagamento_valor || 0,
+        data_pagamento: raw.data_pagamento || '',
+        data_desligamento: raw.data_desligamento || '',
+        observacao: raw.observacao || ''
+      };
+    });
+  },
+  save(dto) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = getSheetOrThrow(ss, 'anotacoes');
+    const all = sheet.getDataRange().getValues();
+    const headers = all[0] || TABLES.anotacoes;
+    const entity = {
+      uuid: normalizeText(dto.uuid) || Utilities.getUuid(),
+      cliente_id: normalizeText(dto.cliente_id),
+      pagamento_valor: toNumber(dto.pagamento_valor, 0),
+      data_pagamento: normalizeText(dto.data_pagamento),
+      data_desligamento: normalizeText(dto.data_desligamento),
+      observacao: normalizeText(dto.observacao)
+    };
+    if (!entity.cliente_id) throw new Error('Cliente é obrigatório em anotações.');
+    const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity,h) ? entity[h] : '');
+    const colUuid = headers.indexOf('uuid');
+    let updated = false;
+    for (let i=1;i<all.length;i++) if (all[i][colUuid]===entity.uuid){ sheet.getRange(i+1,1,1,headers.length).setValues([payload]); updated=true; break; }
+    if (!updated) sheet.appendRow(payload);
+    return { success:true, uuid: entity.uuid };
+  }
+};
+
 // Wrappers para google.script.run (contrato estável com frontend)
 function getClientes() { validateInfrastructureOrThrow(); return ClientesService.list(); }
 function salvarCliente(clienteDTO) { validateInfrastructureOrThrow(); return ClientesService.save(clienteDTO); }
 function getOperacoes() { validateInfrastructureOrThrow(); return OperacoesService.list(); }
 function registrarOperacao(opDTO) { validateInfrastructureOrThrow(); return OperacoesService.save(opDTO); }
 function getDashboardData() { validateInfrastructureOrThrow(); return DashboardService.getStats(); }
+function getAnotacoes() { validateInfrastructureOrThrow(); return AnotacoesService.list(); }
+function salvarAnotacao(dto) { validateInfrastructureOrThrow(); return AnotacoesService.save(dto); }
