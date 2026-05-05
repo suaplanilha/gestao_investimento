@@ -261,9 +261,18 @@
       <div class="glass-card w-full max-w-xl p-6">
         <h3 class="text-lg font-bold mb-3">Editar Anotação de Cliente</h3>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <input v-model="formA.pagamento_valor" type="number" step="0.01" class="glass-input" placeholder="Pagamento R$">
-          <input v-model="formA.data_pagamento" type="date" class="glass-input">
-          <input v-model="formA.data_desligamento" type="date" class="glass-input">
+          <div>
+            <label class="text-[10px] text-slate-400 uppercase ml-1 font-bold">Pagamentos Valor R$</label>
+            <input v-model="formA.pagamento_valor" type="number" step="0.01" class="glass-input" placeholder="Pagamento R$">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-400 uppercase ml-1 font-bold">Data de Pagamento</label>
+            <input v-model="formA.data_pagamento" type="date" class="glass-input">
+          </div>
+          <div>
+            <label class="text-[10px] text-slate-400 uppercase ml-1 font-bold">Data de Desligamento</label>
+            <input v-model="formA.data_desligamento" type="date" class="glass-input">
+          </div>
         </div>
         <div class="mt-4 flex gap-2"><button @click="modalAnotacao.open=false" class="bg-slate-700 px-4 py-2 rounded">Cancelar</button><button @click="saveAnotacao" class="btn-primary px-4 py-2 rounded">Salvar</button></div>
       </div>
