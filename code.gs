@@ -11,11 +11,10 @@ const CONFIG = {
 };
 
 const TABLES = {
-  clientes: ['uuid', 'id_sequencial', 'data_cadastro', 'status', 'nome', 'idade', 'telefone', 'email', 'cidade', 'estado', 'redes_sociais', 'valor_mensalidade', 'vencimento_dia', 'capital_inicial_contrato'],
+  clientes: ['uuid', 'id_sequencial', 'data_cadastro', 'status', 'nome', 'idade', 'telefone', 'email', 'cidade', 'estado', 'redes_sociais', 'valor_mensalidade', 'vencimento_dia', 'capital_inicial_contrato','pagamento_valor','data_pagamento','data_desligamento'],
   operacoes: ['uuid', 'id_usuario', 'cliente_id', 'data_iso', 'status', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho', 'capital_base'],
   saldos: ['uuid', 'cliente_id', 'data_atualizacao', 'saldo_atual'],
-  auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json'],
-  anotacoes: ['uuid','cliente_id','pagamento_valor','data_pagamento','data_desligamento','observacao']
+  auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json']
 };
 
 function toNumber(value, fallback) {
@@ -230,7 +229,10 @@ const ClientesService = {
       redes_sociais: normalizeText(clienteDTO.redes_sociais),
       valor_mensalidade: toNumber(clienteDTO.valor_mensalidade, 0),
       vencimento_dia: toNumber(clienteDTO.vencimento_dia, 10),
-      capital_inicial_contrato: toNumber(clienteDTO.capital_inicial_contrato, 500)
+      capital_inicial_contrato: toNumber(clienteDTO.capital_inicial_contrato, 500),
+      pagamento_valor: toNumber(clienteDTO.pagamento_valor, 0),
+      data_pagamento: normalizeText(clienteDTO.data_pagamento),
+      data_desligamento: normalizeText(clienteDTO.data_desligamento)
     };
 
     if (!dto.nome || !dto.telefone || !dto.email) {
@@ -267,7 +269,10 @@ const ClientesService = {
       redes_sociais: dto.redes_sociais,
       valor_mensalidade: dto.valor_mensalidade,
       vencimento_dia: dto.vencimento_dia,
-      capital_inicial_contrato: dto.capital_inicial_contrato
+      capital_inicial_contrato: dto.capital_inicial_contrato,
+      pagamento_valor: dto.pagamento_valor,
+      data_pagamento: dto.data_pagamento,
+      data_desligamento: dto.data_desligamento
     };
     const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity, h) ? entity[h] : '');
 
@@ -435,56 +440,32 @@ function getDashboardByCliente(clienteId) {
 
 const AnotacoesService = {
   list() {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('anotacoes');
-    if (!sheet || sheet.getLastRow() < 2) return [];
-    const data = sheet.getDataRange().getValues();
-    const headers = data.shift();
-    const clientes = ClientesService.list();
-    const mapC = {};
-    clientes.forEach(c => mapC[c.uuid] = c);
-    return data.map(r => {
-      const raw = {};
-      headers.forEach((h,i)=>raw[h]=r[i]);
-      const c = mapC[raw.cliente_id] || {};
-      return {
-        uuid: raw.uuid,
-        cliente_id: raw.cliente_id,
-        id: c.id_sequencial || '',
-        data: c.data_cadastro || '',
-        nome: c.nome || '',
-        tel: c.telefone || '',
-        email: c.email || '',
-        cidade: c.cidade || '',
-        estado: c.estado || '',
-        status: c.status || 'POTENCIAL',
-        pagamento_valor: raw.pagamento_valor || 0,
-        data_pagamento: raw.data_pagamento || '',
-        data_desligamento: raw.data_desligamento || '',
-        observacao: raw.observacao || ''
-      };
-    });
+    return ClientesService.list().map(c => ({
+      uuid: c.uuid,
+      id: c.id_sequencial,
+      data: c.data_cadastro,
+      nome: c.nome,
+      tel: c.telefone,
+      email: c.email,
+      cidade: c.cidade,
+      estado: c.estado,
+      status: c.status,
+      pagamento_valor: toNumber(c.pagamento_valor, 0),
+      data_pagamento: c.data_pagamento || '',
+      data_desligamento: c.data_desligamento || ''
+    }));
   },
   save(dto) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = getSheetOrThrow(ss, 'anotacoes');
-    const all = sheet.getDataRange().getValues();
-    const headers = all[0] || TABLES.anotacoes;
-    const entity = {
-      uuid: normalizeText(dto.uuid) || Utilities.getUuid(),
-      cliente_id: normalizeText(dto.cliente_id),
+    const cliente = {
+      uuid: normalizeText(dto.uuid),
       pagamento_valor: toNumber(dto.pagamento_valor, 0),
       data_pagamento: normalizeText(dto.data_pagamento),
-      data_desligamento: normalizeText(dto.data_desligamento),
-      observacao: normalizeText(dto.observacao)
+      data_desligamento: normalizeText(dto.data_desligamento)
     };
-    if (!entity.cliente_id) throw new Error('Cliente é obrigatório em anotações.');
-    const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity,h) ? entity[h] : '');
-    const colUuid = headers.indexOf('uuid');
-    let updated = false;
-    for (let i=1;i<all.length;i++) if (all[i][colUuid]===entity.uuid){ sheet.getRange(i+1,1,1,headers.length).setValues([payload]); updated=true; break; }
-    if (!updated) sheet.appendRow(payload);
-    return { success:true, uuid: entity.uuid };
+    if (!cliente.uuid) throw new Error('UUID do cliente é obrigatório para anotação.');
+    const atual = ClientesService.list().find(c => c.uuid === cliente.uuid);
+    if (!atual) throw new Error('Cliente não encontrado para atualização em anotações.');
+    return ClientesService.save({ ...atual, ...cliente });
   }
 };
 
