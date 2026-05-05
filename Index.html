@@ -72,6 +72,7 @@
           <h2 class="text-2xl font-bold text-slate-300">R$ {{ (stats?.totalTaxas ?? 0).toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
         </div>
       </div>
+      <div class="glass-card p-4 flex gap-3 items-center"><label class="text-xs text-slate-300">Cliente:</label><select v-model="dashboardFilterCliente" @change="loadDashboardByCliente" class="glass-input !w-72"><option value="">Todos</option><option v-for="c in clientes" :value="c.uuid">{{ c.nome }}</option></select></div>
       <div class="glass-card p-6">
         <div class="h-80 w-full"><canvas id="mainChart"></canvas></div>
       </div>
@@ -98,6 +99,7 @@
                 <th class="p-4">Data</th>
                 <th class="p-4">Status</th>
                 <th class="p-4">Investidor</th>
+                <th class="p-4">Rede Social</th>
                 <th class="p-4">Contato</th>
                 <th class="p-4">Localização</th>
                 <th class="p-4 text-center">Ações</th>
@@ -114,6 +116,7 @@
                   <div class="font-bold text-white">{{ c.nome }}</div>
                   <div class="text-[10px] text-blue-200 italic flex gap-2 flex-wrap"><span class="info-badge">{{ c.idade }} anos</span><span class="info-badge">{{ c.redes_sociais || 'Sem redes' }}</span></div>
                 </td>
+                <td class="p-4"><span class="info-badge">{{ c.redes_sociais || "-" }}</span></td>
                 <td class="p-4">
                   <div>{{ c.telefone }}</div>
                   <div class="text-blue-200">{{ c.email }}</div>
@@ -148,7 +151,7 @@
             </thead>
             <tbody class="divide-y divide-slate-800">
               <tr v-for="o in operacoes" :key="o.uuid" :class="o.status === 'Inativo' ? 'opacity-50' : ''">
-                <td class="p-3 font-mono text-blue-300">{{ String(o.uuid || '').slice(0,8) }}</td>
+                <td class="p-3 font-mono text-blue-300">{{ o.id_usuario || String(o.uuid || '').slice(0,8) }}</td>
                 <td class="p-3">{{ new Date(o.data_iso).toLocaleDateString('pt-BR') }}</td>
                 <td class="p-3">{{ o.nome_cliente }}</td>
                 <td class="p-3">R$ {{ Number(o.capital_base || 0).toFixed(2) }}</td>
@@ -167,6 +170,12 @@
           </table>
         </div>
       </div>
+    </section>
+
+
+    <section v-if="currentTab === 'anotacoes'" class="glass-card p-6 animate__animated animate__fadeIn">
+      <h2 class="text-xl font-bold mb-4">Anotações</h2>
+      <p class="text-slate-300 text-sm">Aba criada com contrato de dados no backend (`anotacoes`). Próxima etapa: CRUD completo.</p>
     </section>
 
     <!-- MODAL CADASTRO/EDIÇÃO INVESTIDOR -->
@@ -233,14 +242,15 @@
         <button @click="modalOperacao.open = false" class="absolute top-4 right-4 text-slate-400 hover:text-white text-2xl">✕</button>
         <h2 class="text-xl font-bold mb-6 text-emerald-400">{{ formO.uuid ? 'Editar' : 'Novo' }} Lançamento Operacional</h2>
         <div class="space-y-4">
+          <div><label class="text-[10px] text-slate-500 uppercase ml-1">ID (Controle do usuário)</label><input v-model="formO.id_usuario" class="glass-input" placeholder="Ex: OP-001"></div>
           <div><label class="text-[10px] text-slate-500 uppercase ml-1">Investidor Ativo</label><select v-model="formO.cliente_id" class="glass-input"><option value="">Selecione...</option><option v-for="c in clientesAtivos" :value="c.uuid">{{ c.nome }}</option></select></div>
           <div class="grid grid-cols-2 gap-4">
             <div><label class="text-[10px] text-slate-500 uppercase ml-1">Nº Contratos</label><input v-model="formO.contratos" type="number" class="glass-input"></div>
             <div><label class="text-[10px] text-slate-500 uppercase ml-1">Valor por Contrato</label><input v-model="formO.valor_por_contrato" step="0.01" type="number" class="glass-input"></div>
             <div><label class="text-[10px] text-emerald-500 uppercase ml-1 font-bold">Pontos (+)</label><input v-model="formO.pontos_pos" type="number" class="glass-input border-emerald-500/30"></div>
             <div><label class="text-[10px] text-red-500 uppercase ml-1 font-bold">Pontos (-)</label><input v-model="formO.pontos_neg" type="number" class="glass-input border-red-500/30"></div>
-            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Take</label><input v-model="formO.take" type="number" class="glass-input"></div>
-            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Stop</label><input v-model="formO.stop" type="number" class="glass-input"></div>
+            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Take (R$)</label><input v-model="formO.take" type="number" step="0.01" class="glass-input"></div>
+            <div><label class="text-[10px] text-slate-500 uppercase ml-1">Stop (R$)</label><input v-model="formO.stop" type="number" step="0.01" class="glass-input"></div>
           </div>
           <button @click="saveOperacao" :disabled="actionLock" :class="['w-full bg-emerald-600 p-4 rounded-xl font-bold mt-4 shadow-lg', actionLock ? 'btn-disabled' : '']">{{ actionLock ? 'Processando...' : 'Salvar Lançamento' }}</button>
         </div>
@@ -258,6 +268,7 @@
         const clientes = ref([]);
         const operacoes = ref([]);
         const stats = ref({ totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 });
+        const dashboardFilterCliente = ref('');
         const busca = ref('');
         const modal = ref({ open: false });
         const modalOperacao = ref({ open: false });
@@ -272,11 +283,12 @@
         const tabs = [
           { id: 'dash', name: 'Dashboard', icon: '📊' },
           { id: 'investidores', name: 'Investidores', icon: '👥' },
-          { id: 'operacional', name: 'Operacional', icon: '📈' }
+          { id: 'operacional', name: 'Operacional', icon: '📈' },
+          { id: 'anotacoes', name: 'Anotações', icon: '📝' }
         ];
 
         const formC = ref({});
-        const formO = ref({ uuid: null, cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0, take: 0, stop: 0, status: 'Ativo' });
+        const formO = ref({ uuid: null, id_usuario: '', cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0, take: 0, stop: 0, status: 'Ativo' });
 
         const resetFormC = () => {
           formC.value = {
@@ -316,6 +328,20 @@
           }).withFailureHandler(err => { actionLock.value = false; loading.value = false; alert(err.message); }).salvarCliente(payload);
         };
 
+        const loadDashboardByCliente = () => {
+          google.script.run.withSuccessHandler(data => {
+            if (!data || !data.labels) return;
+            if (chart) chart.destroy();
+            const ctx = document.getElementById('mainChart');
+            if (!ctx) return;
+            chart = new Chart(ctx, { type: 'bar', data: { labels: data.labels, datasets: [
+              { label: 'Metas', data: data.metas, backgroundColor: 'rgba(59,130,246,0.6)' },
+              { label: 'Pontos', data: data.pontos, backgroundColor: 'rgba(16,185,129,0.6)' },
+              { label: 'Valores (R$)', data: data.valores, backgroundColor: 'rgba(245,158,11,0.6)' }
+            ]}});
+          }).getDashboardByCliente(dashboardFilterCliente.value);
+        };
+
         const initChart = () => {
           const ctx = document.getElementById('mainChart');
           if (!ctx || operacoes.value.length === 0) return;
@@ -353,7 +379,7 @@
               google.script.run.withSuccessHandler(ops => {
                 operacoes.value = ops;
                 loading.value = false;
-                if (currentTab.value === 'dash') nextTick(() => initChart());
+                if (currentTab.value === 'dash') nextTick(() => loadDashboardByCliente());
               }).withFailureHandler(err => { errors.value.operacoes = err.message; loading.value = false; }).getOperacoes();
             }).withFailureHandler(err => { errors.value.dashboard = err.message; loading.value = false; }).getDashboardData();
           }).withFailureHandler(err => { errors.value.clientes = err.message; loading.value = false; }).getClientes();
@@ -412,7 +438,7 @@
 
         const changeTab = (id) => {
           currentTab.value = id;
-          if (id === 'dash') nextTick(() => initChart());
+          if (id === 'dash') nextTick(() => loadDashboardByCliente());
         };
 
         const runPreReleaseCheck = () => {
@@ -442,7 +468,7 @@
             alert(templates.healthError(err.message));
           }).healthCheck();
         });
-        return { loading, actionLock, currentTab, tabs, clientes, operacoes, stats, busca, modal, modalOperacao, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, openOperacaoModal, inativarOperacao, saveCliente, saveOperacao, toggleStatus, runSetup, runPreReleaseCheck };
+        return { loading, actionLock, currentTab, tabs, clientes, operacoes, stats, dashboardFilterCliente, busca, modal, modalOperacao, errors, formC, formO, clientesFiltrados, clientesAtivos, changeTab, loadDashboardByCliente, openModal, openOperacaoModal, inativarOperacao, saveCliente, saveOperacao, toggleStatus, runSetup, runPreReleaseCheck };
       }
     }).mount('#app');
   </script>

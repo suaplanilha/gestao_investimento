@@ -12,9 +12,10 @@ const CONFIG = {
 
 const TABLES = {
   clientes: ['uuid', 'id_sequencial', 'data_cadastro', 'status', 'nome', 'idade', 'telefone', 'email', 'cidade', 'estado', 'redes_sociais', 'valor_mensalidade', 'vencimento_dia', 'capital_inicial_contrato'],
-  operacoes: ['uuid', 'cliente_id', 'data_iso', 'status', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho', 'capital_base'],
+  operacoes: ['uuid', 'id_usuario', 'cliente_id', 'data_iso', 'status', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho', 'capital_base'],
   saldos: ['uuid', 'cliente_id', 'data_atualizacao', 'saldo_atual'],
-  auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json']
+  auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json'],
+  anotacoes: ['uuid','id','data','nome','tel','email','cidade','estado','status','pagamento_valor','data_pagamento','data_desligamento']
 };
 
 function toNumber(value, fallback) {
@@ -317,6 +318,7 @@ const OperacoesService = {
 
     const dto = {
       uuid: normalizeText(opDTO.uuid),
+      id_usuario: normalizeText(opDTO.id_usuario),
       cliente_id: normalizeText(opDTO.cliente_id),
       status: normalizeText(opDTO.status || 'Ativo'),
       contratos: toNumber(opDTO.contratos, 0),
@@ -334,13 +336,14 @@ const OperacoesService = {
     const pontosSaldo = dto.pontos_pos - dto.pontos_neg;
     const lucroBruto = pontosSaldo * dto.contratos * dto.valor_por_contrato;
     const taxas = dto.contratos * CONFIG.TAXA_POR_CONTRATO;
-    const lucroLiquido = lucroBruto - taxas;
+    const lucroLiquido = lucroBruto;
     const percentual = dto.capital_base > 0 ? (lucroBruto / (dto.capital_base * dto.contratos)) * 100 : 0;
 
     const all = sheet.getDataRange().getValues();
     const headers = all[0] || [];
     const entity = {
       uuid: dto.uuid || Utilities.getUuid(),
+      id_usuario: dto.id_usuario || '',
       cliente_id: dto.cliente_id,
       data_iso: toIsoNow(),
       status: dto.status,
@@ -377,7 +380,8 @@ const OperacoesService = {
       entidade: 'operacoes',
       entidade_id: entity.uuid,
       acao: dto.uuid ? 'update' : 'create',
-      payload: { cliente_id: dto.cliente_id, contratos: dto.contratos, lucro_liquido: lucroLiquido, status: dto.status }
+      payload: { id_usuario: dto.id_usuario || '',
+      cliente_id: dto.cliente_id, contratos: dto.contratos, lucro_liquido: lucroLiquido, status: dto.status }
     });
 
     return { success: true, uuid: payload[0] };
@@ -405,6 +409,28 @@ const DashboardService = {
     return { totalLiquido, totalTaxas, totalOperacoes: data.length };
   }
 };
+
+
+function getDashboardByCliente(clienteId) {
+  validateInfrastructureOrThrow();
+  const clientes = ClientesService.list();
+  const ops = OperacoesService.list().filter(o => !clienteId || o.cliente_id === clienteId);
+  const labels = [];
+  const metas = [];
+  const pontos = [];
+  const valores = [];
+  clientes.filter(c => !clienteId || c.uuid === clienteId).forEach(c => {
+    const cOps = ops.filter(o => o.cliente_id === c.uuid && (o.status || 'Ativo') !== 'Inativo');
+    const sumPontos = cOps.reduce((a,b)=>a + toNumber(b.pontos_pos,0) - toNumber(b.pontos_neg,0),0);
+    const sumValores = cOps.reduce((a,b)=>a + toNumber(b.lucro_liquido,0),0);
+    const meta = toNumber(c.capital_inicial_contrato,0) * Math.max(cOps.length,1);
+    labels.push(c.nome);
+    metas.push(meta);
+    pontos.push(sumPontos);
+    valores.push(sumValores);
+  });
+  return { labels, metas, pontos, valores };
+}
 
 // Wrappers para google.script.run (contrato estável com frontend)
 function getClientes() { validateInfrastructureOrThrow(); return ClientesService.list(); }
