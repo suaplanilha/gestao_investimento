@@ -1,264 +1,181 @@
 /**
- * SISTEMA APOLLO ENTERPRISE (SAE) - GESTÃO MINI ÍNDICE
- * Desenvolvido para: Anderson
- * Versão: 2.1 (Serviços + Health-check)
+ * SAE - Sistema Apollo Enterprise / Eficiente
+ * Gestão de Investimentos / Índice Pessoal
+ * Stack: Google Apps Script V8 + HtmlService + Google Sheets
  */
 
-const CONFIG = {
-  TAXA_POR_CONTRATO: 0.25,
-  VALOR_PONTO: 0.20,
-  APP_ID: typeof __app_id !== 'undefined' ? __app_id : 'SaeMiniIndice'
+const SAE_CONFIG = {
+  VALOR_PONTO_PADRAO: 0.20,
+  META_PONTOS_PADRAO: 750,
+  STATUS: ['Ativo', 'Inativo', 'Potencial']
 };
 
-const TABLES = {
-  clientes: ['uuid', 'id_sequencial', 'data_cadastro', 'status', 'nome', 'idade', 'telefone', 'email', 'cidade', 'estado', 'redes_sociais', 'valor_mensalidade', 'vencimento_dia', 'capital_inicial_contrato','pagamento_valor','data_pagamento','data_desligamento'],
-  operacoes: ['uuid', 'id_usuario', 'cliente_id', 'data_iso', 'status', 'contratos', 'valor_por_contrato', 'pontos_pos', 'pontos_neg', 'take', 'stop', 'lucro_bruto', 'taxas', 'lucro_liquido', 'percentual_ganho', 'capital_base'],
-  saldos: ['uuid', 'cliente_id', 'data_atualizacao', 'saldo_atual'],
+const SCHEMA = {
+  tbl_clientes: [
+    'uuid', 'cliente_id', 'data_cadastro', 'status', 'nome', 'idade', 'telefone', 'email', 'cidade', 'estado',
+    'redes_sociais', 'valor_mensalidade', 'vencimento_dia', 'capital_inicial_contrato', 'pagamento_valor',
+    'data_pagamento', 'data_desligamento'
+  ],
+  tbl_operacoes: [
+    'uuid', 'cliente_id', 'data_operacao', 'capital_inicial_contrato', 'n_contratos', 'valor_por_contrato',
+    'pontos_pos', 'pontos_neg', 'percentual_ganho', 'take', 'stop'
+  ],
+  config: ['uuid', 'data_cadastro', 'status', 'meta_pontos', 'observacao'],
   auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json']
 };
-
-function toNumber(value, fallback) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
-}
-
-function normalizeText(value) {
-  return String(value || '').trim();
-}
-
-function getSheetOrThrow(ss, name) {
-  const sheet = ss.getSheetByName(name);
-  if (!sheet) throw new Error(`Aba obrigatória não encontrada: ${name}. Execute setupDatabase().`);
-  return sheet;
-}
-
-
-
-function toIsoNow() {
-  return new Date().toISOString();
-}
-
-function writeAuditLog(entry) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = getSheetOrThrow(ss, 'auditoria');
-  sheet.appendRow([
-    Utilities.getUuid(),
-    toIsoNow(),
-    normalizeText(entry.entidade),
-    normalizeText(entry.entidade_id),
-    normalizeText(entry.acao),
-    JSON.stringify(entry.payload || {})
-  ]);
-}
 
 function doGet() {
   return HtmlService.createTemplateFromFile('Index')
     .evaluate()
-    .setTitle('SAE - Gestão Mini Índice')
+    .setTitle('SAE - Gestão de Investimentos')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-
-
-function repairOperacoesRowIfNeeded(row, headers) {
-  const idx = name => headers.indexOf(name);
-  const iContratos = idx('contratos');
-  const iStatus = idx('status');
-  const iCapitalBase = idx('capital_base');
-  if (iContratos < 0 || iStatus < 0) return row;
-
-  const contratosVal = row[iContratos];
-  const statusVal = normalizeText(row[iStatus]);
-  const looksBroken = (typeof contratosVal === 'string' && ['ATIVO', 'INATIVO'].includes(contratosVal.toUpperCase())) ||
-    (statusVal && !['ATIVO', 'INATIVO'].includes(statusVal.toUpperCase()));
-
-  if (!looksBroken) return row;
-
-  // Correção para layout legado corrompido observado em produção.
-  const fixed = row.slice();
-  const broken = {
-    contratos: row[idx('contratos')],
-    pontos: row[idx('pontos')],
-    lucro_bruto: row[idx('lucro_bruto')],
-    taxas: row[idx('taxas')],
-    lucro_liquido: row[idx('lucro_liquido')],
-    valor_por_contrato: row[idx('valor_por_contrato')],
-    pontos_pos: row[idx('pontos_pos')],
-    pontos_neg: row[idx('pontos_neg')],
-    take: row[idx('take')],
-    stop: row[idx('stop')],
-    percentual_ganho: row[idx('percentual_ganho')],
-    status: row[idx('status')],
-    capital_base: row[idx('capital_base')]
-  };
-
-  if (idx('status') >= 0) fixed[idx('status')] = normalizeText(broken.contratos || 'Ativo');
-  if (idx('contratos') >= 0) fixed[idx('contratos')] = toNumber(broken.pontos, 0);
-  if (idx('valor_por_contrato') >= 0) fixed[idx('valor_por_contrato')] = toNumber(broken.lucro_bruto, CONFIG.VALOR_PONTO);
-  if (idx('pontos_pos') >= 0) fixed[idx('pontos_pos')] = toNumber(broken.taxas, 0);
-  if (idx('pontos_neg') >= 0) fixed[idx('pontos_neg')] = toNumber(broken.lucro_liquido, 0);
-  if (idx('take') >= 0) fixed[idx('take')] = toNumber(broken.valor_por_contrato, 0);
-  if (idx('stop') >= 0) fixed[idx('stop')] = toNumber(broken.pontos_pos, 0);
-  if (idx('capital_base') >= 0) fixed[idx('capital_base')] = toNumber(broken.status, toNumber(broken.capital_base, 0));
-
-  const pontosSaldo = toNumber(fixed[idx('pontos_pos')], 0) - toNumber(fixed[idx('pontos_neg')], 0);
-  const lucroBruto = pontosSaldo * toNumber(fixed[idx('contratos')], 0) * toNumber(fixed[idx('valor_por_contrato')], CONFIG.VALOR_PONTO);
-  const taxas = toNumber(fixed[idx('contratos')], 0) * CONFIG.TAXA_POR_CONTRATO;
-  const liquido = lucroBruto - taxas;
-  const capital = toNumber(fixed[idx('capital_base')], 0);
-  const perc = capital > 0 && toNumber(fixed[idx('contratos')], 0) > 0 ? (lucroBruto / (capital * toNumber(fixed[idx('contratos')], 0))) * 100 : 0;
-
-  if (idx('lucro_bruto') >= 0) fixed[idx('lucro_bruto')] = lucroBruto;
-  if (idx('taxas') >= 0) fixed[idx('taxas')] = taxas;
-  if (idx('lucro_liquido') >= 0) fixed[idx('lucro_liquido')] = liquido;
-  if (idx('percentual_ganho') >= 0) fixed[idx('percentual_ganho')] = perc.toFixed(2) + '%';
-
-  return fixed;
-}
-
-function repairOperacoesSheetData() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sheet = ss.getSheetByName('operacoes');
-  if (!sheet || sheet.getLastRow() < 2) return { repaired: 0 };
-  const data = sheet.getDataRange().getValues();
-  const headers = data[0];
-  let repaired = 0;
-  for (let i = 1; i < data.length; i++) {
-    const fixed = repairOperacoesRowIfNeeded(data[i], headers);
-    if (JSON.stringify(fixed) !== JSON.stringify(data[i])) {
-      sheet.getRange(i + 1, 1, 1, headers.length).setValues([fixed]);
-      repaired++;
-    }
-  }
-  return { repaired };
-}
-
 function setupDatabase() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  Object.keys(TABLES).forEach(name => {
-    let sheet = ss.getSheetByName(name);
-    if (!sheet) {
-      sheet = ss.insertSheet(name);
-      sheet.appendRow(TABLES[name]);
-      sheet.getRange(1, 1, 1, TABLES[name].length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
-    } else {
-      const currentHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-      TABLES[name].forEach(h => {
-        if (currentHeaders.indexOf(h) === -1) {
-          sheet.getRange(1, sheet.getLastColumn() + 1).setValue(h).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
-        }
-      });
-    }
+  Object.keys(SCHEMA).forEach(name => ensureSheet(ss, name));
+  ensureDefaultMeta_();
+  return { success: true, message: 'Banco SAE sincronizado com sucesso.', schema: SCHEMA };
+}
+
+function ensureSheet(ss, name) {
+  const headers = SCHEMA[name];
+  let sheet = ss.getSheetByName(name);
+  if (!sheet) {
+    sheet = ss.insertSheet(name);
+    sheet.appendRow(headers);
+  } else if (sheet.getLastRow() === 0) {
+    sheet.appendRow(headers);
+  } else {
+    const current = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+    headers.forEach(h => {
+      if (current.indexOf(h) === -1) sheet.getRange(1, sheet.getLastColumn() + 1).setValue(h);
+    });
+  }
+  sheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#0f172a').setFontColor('#ffffff');
+  return sheet;
+}
+
+function getSheetOrThrow_(name) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
+  if (!sheet) throw new Error(`Aba obrigatória ausente: ${name}. Execute setupDatabase().`);
+  return sheet;
+}
+
+function getRows_(name) {
+  const sheet = getSheetOrThrow_(name);
+  if (sheet.getLastRow() < 2) return [];
+  const values = sheet.getDataRange().getValues();
+  const headers = values.shift();
+  return values.map((row, rowIndex) => {
+    const obj = { __row: rowIndex + 2 };
+    headers.forEach((h, i) => obj[h] = row[i]);
+    return obj;
   });
-  const repaired = repairOperacoesSheetData();
-  return `Estrutura SAE sincronizada com sucesso! Linhas operacionais reparadas: ${repaired.repaired}.`;
+}
+
+function writeEntity_(name, entity, uuid) {
+  const sheet = getSheetOrThrow_(name);
+  const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity, h) ? entity[h] : '');
+  const rows = getRows_(name);
+  const found = uuid ? rows.find(r => r.uuid === uuid) : null;
+  if (found) {
+    sheet.getRange(found.__row, 1, 1, headers.length).setValues([payload]);
+  } else {
+    sheet.appendRow(payload);
+  }
+  return entity;
+}
+
+function toIso_(value) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
+function todayIso_() {
+  return new Date().toISOString();
+}
+
+function toNumber_(value, fallback) {
+  if (value === '' || value === null || value === undefined) return fallback;
+  let normalized = value;
+  if (typeof value === 'string') {
+    const raw = value.trim();
+    normalized = raw.indexOf(',') >= 0 ? raw.replace(/\./g, '').replace(',', '.') : raw;
+  }
+  const num = Number(normalized);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function text_(value) {
+  return String(value || '').trim();
+}
+
+function audit_(entidade, entidadeId, acao, payload) {
+  const entity = {
+    uuid: Utilities.getUuid(),
+    data_iso: todayIso_(),
+    entidade,
+    entidade_id: entidadeId,
+    acao,
+    payload_json: JSON.stringify(payload || {})
+  };
+  writeEntity_('auditoria', entity);
+}
+
+function validateInfra_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const details = Object.keys(SCHEMA).map(name => {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet) return { entidade: name, ok: false, erro: 'Aba ausente' };
+    const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
+    const missing = SCHEMA[name].filter(h => headers.indexOf(h) === -1);
+    return { entidade: name, ok: missing.length === 0, erro: missing.join(', ') };
+  });
+  const ok = details.every(d => d.ok);
+  return { success: ok, timestamp_iso: todayIso_(), details };
 }
 
 function healthCheck() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const details = Object.keys(TABLES).map(name => {
-    const sheet = ss.getSheetByName(name);
-    if (!sheet) return { entidade: name, ok: false, erro: 'Aba não encontrada' };
-    const headers = sheet.getLastColumn() > 0 ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0] : [];
-    const missing = TABLES[name].filter(h => headers.indexOf(h) === -1);
-    return { entidade: name, ok: missing.length === 0, erro: missing.length ? `Colunas ausentes: ${missing.join(', ')}` : '' };
-  });
-
-  const invalid = details.filter(d => !d.ok);
-  return {
-    success: invalid.length === 0,
-    timestamp_iso: toIsoNow(),
-    app_id: CONFIG.APP_ID,
-    details,
-    message: invalid.length === 0 ? 'Health-check OK' : 'Health-check encontrou inconsistências'
-  };
-}
-
-
-function validateInfrastructureOrThrow() {
-  const report = healthCheck();
-  if (!report.success) {
-    const details = report.details.filter(d => !d.ok).map(d => `${d.entidade}: ${d.erro}`).join(' | ');
-    throw new Error(`Infraestrutura inválida: ${details}`);
-  }
-  return report;
+  return validateInfra_();
 }
 
 function runPreReleaseHealthCheck() {
-  const report = healthCheck();
-  return {
-    success: report.success,
-    checked_at_iso: toIsoNow(),
-    release_ready: report.success,
-    issues: report.details.filter(d => !d.ok)
-  };
+  const report = validateInfra_();
+  return { success: report.success, release_ready: report.success, checked_at_iso: todayIso_(), issues: report.details.filter(d => !d.ok) };
+}
+
+function assertInfra_() {
+  const report = validateInfra_();
+  if (!report.success) throw new Error('Infraestrutura inválida: ' + report.details.filter(d => !d.ok).map(d => `${d.entidade}: ${d.erro}`).join(' | '));
 }
 
 const ClientesService = {
   list() {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('clientes');
-    if (!sheet) return [];
-    const data = sheet.getDataRange().getValues();
-    const headers = data.shift();
-    return data.map(row => {
-      let obj = {};
-      headers.forEach((h, i) => obj[h] = row[i]);
-      return obj;
-    });
+    return getRows_('tbl_clientes').map(c => normalizeClienteOut_(c));
   },
 
-  save(clienteDTO) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = getSheetOrThrow(ss, 'clientes');
-    const data = sheet.getDataRange().getValues();
-    const headers = data[0];
+  save(input) {
+    const dto = normalizeClienteIn_(input || {});
+    if (!dto.nome) throw new Error('Nome é obrigatório.');
+    if (!dto.cliente_id) throw new Error('ID do cliente é obrigatório.');
+    if (!dto.telefone && !dto.email) throw new Error('Telefone ou e-mail é obrigatório para validação de duplicidade.');
 
-    const dto = {
-      uuid: clienteDTO.uuid || null,
-      id_sequencial: toNumber(clienteDTO.id_sequencial, 0),
-      data_cadastro: clienteDTO.data_cadastro || toIsoNow(),
-      status: clienteDTO.status || 'Ativo',
-      nome: normalizeText(clienteDTO.nome),
-      idade: toNumber(clienteDTO.idade, 0),
-      telefone: normalizeText(clienteDTO.telefone),
-      email: normalizeText(clienteDTO.email),
-      cidade: normalizeText(clienteDTO.cidade),
-      estado: normalizeText(clienteDTO.estado).toUpperCase(),
-      redes_sociais: normalizeText(clienteDTO.redes_sociais),
-      valor_mensalidade: toNumber(clienteDTO.valor_mensalidade, 0),
-      vencimento_dia: toNumber(clienteDTO.vencimento_dia, 10),
-      capital_inicial_contrato: toNumber(clienteDTO.capital_inicial_contrato, 500),
-      pagamento_valor: toNumber(clienteDTO.pagamento_valor, 0),
-      data_pagamento: normalizeText(clienteDTO.data_pagamento),
-      data_desligamento: normalizeText(clienteDTO.data_desligamento)
-    };
-
-    if (!dto.nome || !dto.telefone || !dto.email) {
-      throw new Error('Nome, telefone e e-mail são obrigatórios.');
-    }
-
-    const colTelefone = headers.indexOf('telefone');
-    const colEmail = headers.indexOf('email');
-    const colUuid = headers.indexOf('uuid');
-
-    for (let i = 1; i < data.length; i++) {
-      if (dto.uuid && data[i][colUuid] === dto.uuid) continue;
-      if (data[i][colTelefone] == dto.telefone) throw new Error('Telefone já cadastrado no sistema.');
-      if (data[i][colEmail] == dto.email) throw new Error('E-mail já cadastrado no sistema.');
-    }
-
-    let idSequencial = dto.id_sequencial;
-    if (!idSequencial) {
-      const ids = data.slice(1).map(r => Number(r[headers.indexOf('id_sequencial')]) || 0);
-      idSequencial = ids.length > 0 ? Math.max(...ids) + 1 : 1;
-    }
+    const clientes = getRows_('tbl_clientes');
+    const duplicate = clientes.find(c => c.uuid !== dto.uuid && (
+      (dto.email && text_(c.email).toLowerCase() === dto.email.toLowerCase()) ||
+      (dto.telefone && onlyDigits_(c.telefone) === onlyDigits_(dto.telefone)) ||
+      (dto.cliente_id && text_(c.cliente_id).toLowerCase() === dto.cliente_id.toLowerCase())
+    ));
+    if (duplicate) throw new Error('Cliente duplicado por ID, telefone ou e-mail.');
 
     const entity = {
       uuid: dto.uuid || Utilities.getUuid(),
-      id_sequencial: idSequencial,
-      data_cadastro: dto.data_cadastro,
+      cliente_id: dto.cliente_id,
+      data_cadastro: dto.data_cadastro || todayIso_(),
       status: dto.status,
       nome: dto.nome,
       idade: dto.idade,
@@ -274,206 +191,248 @@ const ClientesService = {
       data_pagamento: dto.data_pagamento,
       data_desligamento: dto.data_desligamento
     };
-    const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity, h) ? entity[h] : '');
-
-    if (dto.uuid) {
-      for (let i = 1; i < data.length; i++) {
-        if (data[i][colUuid] === dto.uuid) {
-          sheet.getRange(i + 1, 1, 1, headers.length).setValues([payload]);
-          break;
-        }
-      }
-    } else {
-      sheet.appendRow(payload);
-    }
-
-    writeAuditLog({
-      entidade: 'clientes',
-      entidade_id: String(entity.uuid),
-      acao: dto.uuid ? 'update' : 'create',
-      payload: { id_sequencial: idSequencial, status: dto.status, nome: dto.nome, email: dto.email }
-    });
-
-    return { success: true, id: idSequencial };
-  }
-};
-
-const OperacoesService = {
-  list() {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = ss.getSheetByName('operacoes');
-    if (!sheet) return [];
-    const data = sheet.getDataRange().getValues();
-    const headers = data.shift();
-    const clientes = ClientesService.list();
-    const mapNome = {};
-    clientes.forEach(c => mapNome[c.uuid] = c.nome);
-
-    return data.map(r => {
-      const o = {};
-      headers.forEach((h, i) => o[h] = r[i]);
-      o.nome_cliente = mapNome[o.cliente_id] || 'Não encontrado';
-      return o;
-    });
+    writeEntity_('tbl_clientes', entity, dto.uuid);
+    audit_('tbl_clientes', entity.uuid, dto.uuid ? 'update' : 'create', { cliente_id: entity.cliente_id, nome: entity.nome, status: entity.status });
+    return { success: true, cliente: normalizeClienteOut_(entity) };
   },
 
-  save(opDTO) {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const sheet = getSheetOrThrow(ss, 'operacoes');
-
-    const dto = {
-      uuid: normalizeText(opDTO.uuid),
-      id_usuario: normalizeText(opDTO.id_usuario),
-      cliente_id: normalizeText(opDTO.cliente_id),
-      status: normalizeText(opDTO.status || 'Ativo'),
-      contratos: toNumber(opDTO.contratos, 0),
-      valor_por_contrato: toNumber(opDTO.valor_por_contrato, CONFIG.VALOR_PONTO),
-      pontos_pos: toNumber(opDTO.pontos_pos, 0),
-      pontos_neg: toNumber(opDTO.pontos_neg, 0),
-      take: toNumber(opDTO.take, 0),
-      stop: toNumber(opDTO.stop, 0),
-      capital_base: toNumber(opDTO.capital_base, 0)
-    };
-
-    if (!dto.cliente_id) throw new Error('Cliente é obrigatório.');
-    if (dto.contratos <= 0) throw new Error('Quantidade de contratos deve ser maior que zero.');
-
-    const pontosSaldo = dto.pontos_pos - dto.pontos_neg;
-    const lucroBruto = pontosSaldo * dto.contratos * dto.valor_por_contrato;
-    const taxas = dto.contratos * CONFIG.TAXA_POR_CONTRATO;
-    const lucroLiquido = lucroBruto;
-    const percentual = dto.capital_base > 0 ? (lucroBruto / (dto.capital_base * dto.contratos)) * 100 : 0;
-
-    const all = sheet.getDataRange().getValues();
-    const headers = all[0] || [];
-    const entity = {
-      uuid: dto.uuid || Utilities.getUuid(),
-      id_usuario: dto.id_usuario || '',
-      cliente_id: dto.cliente_id,
-      data_iso: toIsoNow(),
-      status: dto.status,
-      contratos: dto.contratos,
-      valor_por_contrato: dto.valor_por_contrato,
-      pontos_pos: dto.pontos_pos,
-      pontos_neg: dto.pontos_neg,
-      take: dto.take,
-      stop: dto.stop,
-      lucro_bruto: lucroBruto,
-      taxas: taxas,
-      lucro_liquido: lucroLiquido,
-      percentual_ganho: percentual.toFixed(2) + '%',
-      capital_base: dto.capital_base,
-      pontos: dto.pontos_pos - dto.pontos_neg
-    };
-    const payload = headers.map(h => Object.prototype.hasOwnProperty.call(entity, h) ? entity[h] : '');
-    const colUuid = headers.indexOf('uuid');
-    if (dto.uuid && colUuid >= 0) {
-      let updated = false;
-      for (let i = 1; i < all.length; i++) {
-        if (all[i][colUuid] === dto.uuid) {
-          sheet.getRange(i + 1, 1, 1, headers.length).setValues([payload]);
-          updated = true;
-          break;
-        }
-      }
-      if (!updated) sheet.appendRow(payload);
-    } else {
-      sheet.appendRow(payload);
-    }
-
-    writeAuditLog({
-      entidade: 'operacoes',
-      entidade_id: entity.uuid,
-      acao: dto.uuid ? 'update' : 'create',
-      payload: { id_usuario: dto.id_usuario || '',
-      cliente_id: dto.cliente_id, contratos: dto.contratos, lucro_liquido: lucroLiquido, status: dto.status }
-    });
-
-    return { success: true, uuid: payload[0] };
+  softDelete(uuid) {
+    const cliente = this.list().find(c => c.uuid === uuid);
+    if (!cliente) throw new Error('Cliente não encontrado.');
+    cliente.status = cliente.status === 'Inativo' ? 'Ativo' : 'Inativo';
+    return this.save(cliente);
   }
 };
 
-const DashboardService = {
-  getStats() {
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const opSheet = ss.getSheetByName('operacoes');
-    if (!opSheet || opSheet.getLastRow() < 2) return { totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 };
-
-    const data = opSheet.getDataRange().getValues();
-    const headers = data.shift();
-    const colTaxas = headers.indexOf('taxas');
-    const colLiquido = headers.indexOf('lucro_liquido');
-
-    let totalLiquido = 0;
-    let totalTaxas = 0;
-    data.forEach(row => {
-      totalTaxas += Number(row[colTaxas] || 0);
-      totalLiquido += Number(row[colLiquido] || 0);
-    });
-
-    return { totalLiquido, totalTaxas, totalOperacoes: data.length };
-  }
-};
-
-
-function getDashboardByCliente(clienteId) {
-  validateInfrastructureOrThrow();
-  const clientes = ClientesService.list();
-  const ops = OperacoesService.list().filter(o => !clienteId || o.cliente_id === clienteId);
-  const labels = [];
-  const metas = [];
-  const pontos = [];
-  const valores = [];
-  clientes.filter(c => !clienteId || c.uuid === clienteId).forEach(c => {
-    const cOps = ops.filter(o => o.cliente_id === c.uuid && (o.status || 'Ativo') !== 'Inativo');
-    const sumPontos = cOps.reduce((a,b)=>a + toNumber(b.pontos_pos,0) - toNumber(b.pontos_neg,0),0);
-    const sumValores = cOps.reduce((a,b)=>a + toNumber(b.lucro_liquido,0),0);
-    const meta = toNumber(c.capital_inicial_contrato,0) * Math.max(cOps.length,1);
-    labels.push(c.nome);
-    metas.push(meta);
-    pontos.push(sumPontos);
-    valores.push(sumValores);
-  });
-  return { labels, metas, pontos, valores };
+function normalizeClienteIn_(input) {
+  return {
+    uuid: text_(input.uuid),
+    cliente_id: text_(input.cliente_id),
+    data_cadastro: toIso_(input.data_cadastro) || todayIso_(),
+    status: SAE_CONFIG.STATUS.indexOf(input.status) >= 0 ? input.status : 'Ativo',
+    nome: text_(input.nome),
+    idade: toNumber_(input.idade, 0),
+    telefone: text_(input.telefone),
+    email: text_(input.email).toLowerCase(),
+    cidade: text_(input.cidade),
+    estado: text_(input.estado).toUpperCase(),
+    redes_sociais: text_(input.redes_sociais),
+    valor_mensalidade: toNumber_(input.valor_mensalidade, 0),
+    vencimento_dia: toNumber_(input.vencimento_dia, 10),
+    capital_inicial_contrato: toNumber_(input.capital_inicial_contrato, 0),
+    pagamento_valor: toNumber_(input.pagamento_valor, 0),
+    data_pagamento: toIso_(input.data_pagamento),
+    data_desligamento: toIso_(input.data_desligamento)
+  };
 }
 
+function normalizeClienteOut_(c) {
+  return {
+    uuid: c.uuid,
+    cliente_id: c.cliente_id,
+    data_cadastro: toIso_(c.data_cadastro),
+    status: c.status || 'Ativo',
+    nome: c.nome || '',
+    idade: toNumber_(c.idade, 0),
+    telefone: c.telefone || '',
+    email: c.email || '',
+    cidade: c.cidade || '',
+    estado: c.estado || '',
+    redes_sociais: c.redes_sociais || '',
+    valor_mensalidade: toNumber_(c.valor_mensalidade, 0),
+    vencimento_dia: toNumber_(c.vencimento_dia, 10),
+    capital_inicial_contrato: toNumber_(c.capital_inicial_contrato, 0),
+    pagamento_valor: toNumber_(c.pagamento_valor, 0),
+    data_pagamento: toIso_(c.data_pagamento),
+    data_desligamento: toIso_(c.data_desligamento)
+  };
+}
 
-const AnotacoesService = {
-  list() {
-    return ClientesService.list().map(c => ({
-      uuid: c.uuid,
-      id: c.id_sequencial,
-      data: c.data_cadastro,
-      nome: c.nome,
-      tel: c.telefone,
-      email: c.email,
-      cidade: c.cidade,
-      estado: c.estado,
-      status: c.status,
-      pagamento_valor: toNumber(c.pagamento_valor, 0),
-      data_pagamento: c.data_pagamento || '',
-      data_desligamento: c.data_desligamento || ''
-    }));
+function onlyDigits_(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+const OperacoesService = {
+  list(filters) {
+    const clientes = ClientesService.list();
+    const map = {};
+    clientes.forEach(c => map[c.cliente_id] = c);
+    return getRows_('tbl_operacoes')
+      .map(o => normalizeOperacaoOut_(o, map[o.cliente_id]))
+      .filter(o => filterByPeriodo_(o.data_operacao, filters && filters.de, filters && filters.ate))
+      .filter(o => !filters || !filters.cliente_id || o.cliente_id === filters.cliente_id);
   },
-  save(dto) {
-    const cliente = {
-      uuid: normalizeText(dto.uuid),
-      pagamento_valor: toNumber(dto.pagamento_valor, 0),
-      data_pagamento: normalizeText(dto.data_pagamento),
-      data_desligamento: normalizeText(dto.data_desligamento)
-    };
-    if (!cliente.uuid) throw new Error('UUID do cliente é obrigatório para anotação.');
-    const atual = ClientesService.list().find(c => c.uuid === cliente.uuid);
-    if (!atual) throw new Error('Cliente não encontrado para atualização em anotações.');
-    return ClientesService.save({ ...atual, ...cliente });
+
+  save(input) {
+    const cliente = ClientesService.list().find(c => c.cliente_id === text_(input && input.cliente_id));
+    if (!cliente) throw new Error('Cliente não encontrado para lançamento de operação.');
+    const dto = normalizeOperacaoIn_(input || {}, cliente);
+    const entity = calculateOperacao_(dto);
+    writeEntity_('tbl_operacoes', entity, dto.uuid);
+    audit_('tbl_operacoes', entity.uuid, dto.uuid ? 'update' : 'create', { cliente_id: entity.cliente_id, take: entity.take, stop: entity.stop });
+    return { success: true, operacao: normalizeOperacaoOut_(entity, cliente) };
   }
 };
 
-// Wrappers para google.script.run (contrato estável com frontend)
-function getClientes() { validateInfrastructureOrThrow(); return ClientesService.list(); }
-function salvarCliente(clienteDTO) { validateInfrastructureOrThrow(); return ClientesService.save(clienteDTO); }
-function getOperacoes() { validateInfrastructureOrThrow(); return OperacoesService.list(); }
-function registrarOperacao(opDTO) { validateInfrastructureOrThrow(); return OperacoesService.save(opDTO); }
-function getDashboardData() { validateInfrastructureOrThrow(); return DashboardService.getStats(); }
-function getAnotacoes() { validateInfrastructureOrThrow(); return AnotacoesService.list(); }
-function salvarAnotacao(dto) { validateInfrastructureOrThrow(); return AnotacoesService.save(dto); }
+function normalizeOperacaoIn_(input, cliente) {
+  return {
+    uuid: text_(input.uuid),
+    cliente_id: text_(input.cliente_id),
+    data_operacao: toIso_(input.data_operacao) || todayIso_(),
+    capital_inicial_contrato: toNumber_(input.capital_inicial_contrato, cliente.capital_inicial_contrato || 0),
+    n_contratos: toNumber_(input.n_contratos, 1),
+    valor_por_contrato: toNumber_(input.valor_por_contrato, SAE_CONFIG.VALOR_PONTO_PADRAO),
+    pontos_pos: toNumber_(input.pontos_pos, 0),
+    pontos_neg: toNumber_(input.pontos_neg, 0)
+  };
+}
+
+function calculateOperacao_(dto) {
+  const take = dto.pontos_pos * dto.n_contratos * dto.valor_por_contrato;
+  const stop = dto.pontos_neg * dto.n_contratos * dto.valor_por_contrato;
+  const saldo = take - stop;
+  const base = dto.capital_inicial_contrato * dto.n_contratos;
+  const percentual = base > 0 ? (saldo / base) * 100 : 0;
+  return {
+    uuid: dto.uuid || Utilities.getUuid(),
+    cliente_id: dto.cliente_id,
+    data_operacao: dto.data_operacao,
+    capital_inicial_contrato: dto.capital_inicial_contrato,
+    n_contratos: dto.n_contratos,
+    valor_por_contrato: dto.valor_por_contrato,
+    pontos_pos: dto.pontos_pos,
+    pontos_neg: dto.pontos_neg,
+    percentual_ganho: percentual,
+    take,
+    stop
+  };
+}
+
+function normalizeOperacaoOut_(o, cliente) {
+  const take = toNumber_(o.take, 0);
+  const stop = toNumber_(o.stop, 0);
+  return {
+    uuid: o.uuid,
+    cliente_id: o.cliente_id,
+    nome: cliente ? cliente.nome : 'Cliente não encontrado',
+    data_operacao: toIso_(o.data_operacao),
+    capital_inicial_contrato: toNumber_(o.capital_inicial_contrato, 0),
+    n_contratos: toNumber_(o.n_contratos, 0),
+    valor_por_contrato: toNumber_(o.valor_por_contrato, SAE_CONFIG.VALOR_PONTO_PADRAO),
+    pontos_pos: toNumber_(o.pontos_pos, 0),
+    pontos_neg: toNumber_(o.pontos_neg, 0),
+    percentual_ganho: toNumber_(o.percentual_ganho, 0),
+    take,
+    stop,
+    saldo: take - stop
+  };
+}
+
+const ConfigService = {
+  list() {
+    return getRows_('config').map(c => ({ uuid: c.uuid, data_cadastro: toIso_(c.data_cadastro), status: c.status || 'Ativo', meta_pontos: toNumber_(c.meta_pontos, SAE_CONFIG.META_PONTOS_PADRAO), observacao: c.observacao || '' }));
+  },
+
+  metaAtual() {
+    const metas = this.list().filter(m => m.status === 'Ativo');
+    return metas.length ? metas[metas.length - 1] : { meta_pontos: SAE_CONFIG.META_PONTOS_PADRAO };
+  },
+
+  saveMeta(input) {
+    const meta = toNumber_(input && input.meta_pontos, SAE_CONFIG.META_PONTOS_PADRAO);
+    if (meta <= 0) throw new Error('Meta deve ser maior que zero.');
+    const entity = { uuid: Utilities.getUuid(), data_cadastro: todayIso_(), status: 'Ativo', meta_pontos: meta, observacao: text_(input && input.observacao) };
+    writeEntity_('config', entity);
+    audit_('config', entity.uuid, 'create_meta', { meta_pontos: meta });
+    return { success: true, meta: entity };
+  }
+};
+
+function ensureDefaultMeta_() {
+  const rows = getRows_('config');
+  if (rows.length === 0) ConfigService.saveMeta({ meta_pontos: SAE_CONFIG.META_PONTOS_PADRAO, observacao: 'Meta inicial padrão SAE' });
+}
+
+const DashboardService = {
+  get(filters) {
+    const operacoes = OperacoesService.list(filters || {});
+    const clientes = ClientesService.list().filter(c => !filters || !filters.cliente_id || c.cliente_id === filters.cliente_id);
+    const metaAtual = ConfigService.metaAtual().meta_pontos;
+    const linhaMap = {};
+    operacoes.forEach(o => {
+      const dia = (o.data_operacao || '').slice(0, 10);
+      if (!linhaMap[dia]) linhaMap[dia] = { data: dia, pontos_pos: 0, pontos_neg: 0 };
+      linhaMap[dia].pontos_pos += o.pontos_pos;
+      linhaMap[dia].pontos_neg += o.pontos_neg;
+    });
+    const barras = clientes.map(c => {
+      const ops = operacoes.filter(o => o.cliente_id === c.cliente_id);
+      return {
+        cliente_id: c.cliente_id,
+        nome: c.nome,
+        pontos: ops.reduce((acc, o) => acc + o.pontos_pos - o.pontos_neg, 0),
+        meta: metaAtual
+      };
+    });
+    return {
+      linha: Object.keys(linhaMap).sort().map(k => linhaMap[k]),
+      barras,
+      resumo: buildResumo_(operacoes)
+    };
+  }
+};
+
+function buildResumo_(operacoes) {
+  return {
+    total_take: operacoes.reduce((acc, o) => acc + o.take, 0),
+    total_stop: operacoes.reduce((acc, o) => acc + o.stop, 0),
+    saldo_total: operacoes.reduce((acc, o) => acc + o.saldo, 0),
+    total_operacoes: operacoes.length
+  };
+}
+
+const CarteiraService = {
+  get(filters) {
+    const clientes = ClientesService.list().filter(c => !filters || !filters.cliente_id || c.cliente_id === filters.cliente_id);
+    const operacoes = OperacoesService.list(filters || {});
+    return clientes.map(c => {
+      const ops = operacoes.filter(o => o.cliente_id === c.cliente_id);
+      return {
+        cliente_id: c.cliente_id,
+        nome: c.nome,
+        status: c.status,
+        saldo_total: ops.reduce((acc, o) => acc + o.saldo, 0),
+        pontos_pos: ops.reduce((acc, o) => acc + o.pontos_pos, 0),
+        pontos_neg: ops.reduce((acc, o) => acc + o.pontos_neg, 0),
+        operacoes: ops
+      };
+    });
+  }
+};
+
+function filterByPeriodo_(iso, de, ate) {
+  const day = (iso || '').slice(0, 10);
+  if (de && day < de) return false;
+  if (ate && day > ate) return false;
+  return true;
+}
+
+function getAppData(filters) {
+  assertInfra_();
+  const safeFilters = filters || {};
+  return {
+    clientes: ClientesService.list(),
+    operacoes: OperacoesService.list(safeFilters),
+    dashboard: DashboardService.get(safeFilters),
+    carteira: CarteiraService.get(safeFilters),
+    metas: ConfigService.list(),
+    metaAtual: ConfigService.metaAtual()
+  };
+}
+
+function salvarCliente(cliente) { assertInfra_(); return ClientesService.save(cliente); }
+function softDeleteCliente(uuid) { assertInfra_(); return ClientesService.softDelete(uuid); }
+function registrarOperacao(op) { assertInfra_(); return OperacoesService.save(op); }
+function salvarMeta(meta) { assertInfra_(); return ConfigService.saveMeta(meta); }
+function getDashboardData(filters) { assertInfra_(); return DashboardService.get(filters || {}); }
+function getCarteira(filters) { assertInfra_(); return CarteiraService.get(filters || {}); }
