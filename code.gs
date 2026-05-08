@@ -264,8 +264,12 @@ const OperacoesService = {
   },
 
   save(input) {
-    const cliente = ClientesService.list().find(c => c.cliente_id === text_(input && input.cliente_id));
-    if (!cliente) throw new Error('Cliente não encontrado para lançamento de operação.');
+    const cliente = findClienteForOperacao_(input || {});
+    if (!cliente) {
+      const recebido = text_(input && (input.cliente_id || input.cliente_uuid || input.uuid_cliente));
+      const disponiveis = ClientesService.list().map(c => c.cliente_id).filter(Boolean).join(', ');
+      throw new Error(`Cliente não encontrado para lançamento de operação. Recebido: ${recebido || 'vazio'}. IDs disponíveis: ${disponiveis || 'nenhum'}.`);
+    }
     const dto = normalizeOperacaoIn_(input || {}, cliente);
     const entity = calculateOperacao_(dto);
     writeEntity_('tbl_operacoes', entity, dto.uuid);
@@ -274,10 +278,19 @@ const OperacoesService = {
   }
 };
 
+function findClienteForOperacao_(input) {
+  const clientes = ClientesService.list();
+  const clienteId = text_(input.cliente_id).toLowerCase();
+  const clienteUuid = text_(input.cliente_uuid || input.uuid_cliente).toLowerCase();
+  return clientes.find(c => text_(c.cliente_id).toLowerCase() === clienteId) ||
+    clientes.find(c => text_(c.uuid).toLowerCase() === clienteUuid) ||
+    clientes.find(c => text_(c.uuid).toLowerCase() === clienteId);
+}
+
 function normalizeOperacaoIn_(input, cliente) {
   return {
     uuid: text_(input.uuid),
-    cliente_id: text_(input.cliente_id),
+    cliente_id: cliente.cliente_id,
     data_operacao: toIso_(input.data_operacao) || todayIso_(),
     capital_inicial_contrato: toNumber_(input.capital_inicial_contrato, cliente.capital_inicial_contrato || 0),
     n_contratos: toNumber_(input.n_contratos, 1),
