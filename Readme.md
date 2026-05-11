@@ -36,6 +36,7 @@ Este projeto é um WebApp em Google Apps Script (GAS) para gestão pessoal de cl
 | `n_contratos` | Quantidade de contratos. |
 | `valor_por_contrato` | Valor por ponto/contrato, padrão `0.20`. |
 | `pontos_pos`, `pontos_neg` | Pontos positivos e negativos. |
+| `meta_pontos` | Meta mensal/individual registrada junto da operação, sem alterar lançamentos anteriores. |
 | `percentual_ganho` | Calculado no backend. |
 | `take` | `pontos_pos * n_contratos * valor_por_contrato`. |
 | `stop` | `pontos_neg * n_contratos * valor_por_contrato`. |
@@ -55,7 +56,9 @@ Registra eventos sistêmicos críticos em JSON: criação/edição de clientes, 
 3. Cliente não pode duplicar por `cliente_id`, telefone ou e-mail.
 4. Operação sempre se relaciona por `cliente_id` manual do cliente.
 5. Take e Stop são valores em BRL derivados dos pontos lançados.
-6. A carteira é derivada de operações, sem duplicar saldo em nova aba.
+6. A meta de cada operação é gravada no lançamento para preservar histórico sem regressão.
+7. A carteira é derivada de operações, sem duplicar saldo em nova aba.
+8. Datas de operação são armazenadas como `YYYY-MM-DD` para evitar deslocamento de fuso entre GAS, Sheets e frontend.
 
 ## Fluxo de implantação no GAS
 

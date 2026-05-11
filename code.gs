@@ -18,7 +18,7 @@ const SCHEMA = {
   ],
   tbl_operacoes: [
     'uuid', 'cliente_id', 'data_operacao', 'capital_inicial_contrato', 'n_contratos', 'valor_por_contrato',
-    'pontos_pos', 'pontos_neg', 'percentual_ganho', 'take', 'stop'
+    'pontos_pos', 'pontos_neg', 'meta_pontos', 'percentual_ganho', 'take', 'stop'
   ],
   config: ['uuid', 'data_cadastro', 'status', 'meta_pontos', 'observacao'],
   auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json']
@@ -93,6 +93,27 @@ function toIso_(value) {
   if (!value) return '';
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+}
+
+function toDateOnly_(value) {
+  if (!value) return '';
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+  const raw = String(value).trim();
+  const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (isoMatch) return isoMatch[1];
+  const brMatch = raw.match(/^(\d{2})[\/-](\d{2})[\/-](\d{4})$/);
+  if (brMatch) return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? '' : toDateOnly_(date);
+}
+
+function todayDateOnly_() {
+  return toDateOnly_(new Date());
 }
 
 function todayIso_() {
@@ -221,15 +242,15 @@ function normalizeClienteIn_(input) {
     vencimento_dia: toNumber_(input.vencimento_dia, 10),
     capital_inicial_contrato: toNumber_(input.capital_inicial_contrato, 0),
     pagamento_valor: toNumber_(input.pagamento_valor, 0),
-    data_pagamento: toIso_(input.data_pagamento),
-    data_desligamento: toIso_(input.data_desligamento)
+    data_pagamento: toDateOnly_(input.data_pagamento),
+    data_desligamento: toDateOnly_(input.data_desligamento)
   };
 }
 
 function normalizeClienteOut_(c) {
   return {
     uuid: c.uuid,
-    cliente_id: c.cliente_id,
+    cliente_id: text_(c.cliente_id),
     data_cadastro: toIso_(c.data_cadastro),
     status: c.status || 'Ativo',
     nome: c.nome || '',
@@ -243,8 +264,8 @@ function normalizeClienteOut_(c) {
     vencimento_dia: toNumber_(c.vencimento_dia, 10),
     capital_inicial_contrato: toNumber_(c.capital_inicial_contrato, 0),
     pagamento_valor: toNumber_(c.pagamento_valor, 0),
-    data_pagamento: toIso_(c.data_pagamento),
-    data_desligamento: toIso_(c.data_desligamento)
+    data_pagamento: toDateOnly_(c.data_pagamento),
+    data_desligamento: toDateOnly_(c.data_desligamento)
   };
 }
 
@@ -256,11 +277,11 @@ const OperacoesService = {
   list(filters) {
     const clientes = ClientesService.list();
     const map = {};
-    clientes.forEach(c => map[c.cliente_id] = c);
+    clientes.forEach(c => map[String(c.cliente_id)] = c);
     return getRows_('tbl_operacoes')
-      .map(o => normalizeOperacaoOut_(o, map[o.cliente_id]))
+      .map(o => normalizeOperacaoOut_(o, map[String(o.cliente_id)]))
       .filter(o => filterByPeriodo_(o.data_operacao, filters && filters.de, filters && filters.ate))
-      .filter(o => !filters || !filters.cliente_id || o.cliente_id === filters.cliente_id);
+      .filter(o => !filters || !filters.cliente_id || String(o.cliente_id) === String(filters.cliente_id));
   },
 
   save(input) {
@@ -271,10 +292,22 @@ const OperacoesService = {
       throw new Error(`Cliente não encontrado para lançamento de operação. Recebido: ${recebido || 'vazio'}. IDs disponíveis: ${disponiveis || 'nenhum'}.`);
     }
     const dto = normalizeOperacaoIn_(input || {}, cliente);
+    validateOperacao_(dto);
     const entity = calculateOperacao_(dto);
     writeEntity_('tbl_operacoes', entity, dto.uuid);
     audit_('tbl_operacoes', entity.uuid, dto.uuid ? 'update' : 'create', { cliente_id: entity.cliente_id, take: entity.take, stop: entity.stop });
     return { success: true, operacao: normalizeOperacaoOut_(entity, cliente) };
+  },
+
+  remove(uuid) {
+    const id = text_(uuid);
+    if (!id) throw new Error('UUID da operação é obrigatório para deleção.');
+    const sheet = getSheetOrThrow_('tbl_operacoes');
+    const row = getRows_('tbl_operacoes').find(r => r.uuid === id);
+    if (!row) throw new Error('Operação não encontrada para deleção.');
+    sheet.deleteRow(row.__row);
+    audit_('tbl_operacoes', id, 'delete', { cliente_id: row.cliente_id, data_operacao: row.data_operacao });
+    return { success: true, uuid: id };
   }
 };
 
@@ -291,13 +324,22 @@ function normalizeOperacaoIn_(input, cliente) {
   return {
     uuid: text_(input.uuid),
     cliente_id: cliente.cliente_id,
-    data_operacao: toIso_(input.data_operacao) || todayIso_(),
+    data_operacao: toDateOnly_(input.data_operacao) || todayDateOnly_(),
     capital_inicial_contrato: toNumber_(input.capital_inicial_contrato, cliente.capital_inicial_contrato || 0),
     n_contratos: toNumber_(input.n_contratos, 1),
     valor_por_contrato: toNumber_(input.valor_por_contrato, SAE_CONFIG.VALOR_PONTO_PADRAO),
     pontos_pos: toNumber_(input.pontos_pos, 0),
-    pontos_neg: toNumber_(input.pontos_neg, 0)
+    pontos_neg: toNumber_(input.pontos_neg, 0),
+    meta_pontos: toNumber_(input.meta_pontos, ConfigService.metaAtual().meta_pontos || SAE_CONFIG.META_PONTOS_PADRAO)
   };
+}
+
+
+function validateOperacao_(dto) {
+  if (!dto.data_operacao) throw new Error('Data da operação é obrigatória.');
+  if (dto.n_contratos <= 0) throw new Error('Número de contratos deve ser maior que zero.');
+  if (dto.valor_por_contrato <= 0) throw new Error('Valor por contrato deve ser maior que zero.');
+  if (dto.meta_pontos <= 0) throw new Error('Meta da operação deve ser maior que zero.');
 }
 
 function calculateOperacao_(dto) {
@@ -315,6 +357,7 @@ function calculateOperacao_(dto) {
     valor_por_contrato: dto.valor_por_contrato,
     pontos_pos: dto.pontos_pos,
     pontos_neg: dto.pontos_neg,
+    meta_pontos: dto.meta_pontos,
     percentual_ganho: percentual,
     take,
     stop
@@ -326,14 +369,15 @@ function normalizeOperacaoOut_(o, cliente) {
   const stop = toNumber_(o.stop, 0);
   return {
     uuid: o.uuid,
-    cliente_id: o.cliente_id,
+    cliente_id: text_(o.cliente_id),
     nome: cliente ? cliente.nome : 'Cliente não encontrado',
-    data_operacao: toIso_(o.data_operacao),
+    data_operacao: toDateOnly_(o.data_operacao),
     capital_inicial_contrato: toNumber_(o.capital_inicial_contrato, 0),
     n_contratos: toNumber_(o.n_contratos, 0),
     valor_por_contrato: toNumber_(o.valor_por_contrato, SAE_CONFIG.VALOR_PONTO_PADRAO),
     pontos_pos: toNumber_(o.pontos_pos, 0),
     pontos_neg: toNumber_(o.pontos_neg, 0),
+    meta_pontos: toNumber_(o.meta_pontos, SAE_CONFIG.META_PONTOS_PADRAO),
     percentual_ganho: toNumber_(o.percentual_ganho, 0),
     take,
     stop,
@@ -369,7 +413,7 @@ function ensureDefaultMeta_() {
 const DashboardService = {
   get(filters) {
     const operacoes = OperacoesService.list(filters || {});
-    const clientes = ClientesService.list().filter(c => !filters || !filters.cliente_id || c.cliente_id === filters.cliente_id);
+    const clientes = ClientesService.list().filter(c => !filters || !filters.cliente_id || String(c.cliente_id) === String(filters.cliente_id));
     const metaAtual = ConfigService.metaAtual().meta_pontos;
     const linhaMap = {};
     operacoes.forEach(o => {
@@ -378,15 +422,18 @@ const DashboardService = {
       linhaMap[dia].pontos_pos += o.pontos_pos;
       linhaMap[dia].pontos_neg += o.pontos_neg;
     });
-    const barras = clientes.map(c => {
-      const ops = operacoes.filter(o => o.cliente_id === c.cliente_id);
-      return {
-        cliente_id: c.cliente_id,
-        nome: c.nome,
-        pontos: ops.reduce((acc, o) => acc + o.pontos_pos - o.pontos_neg, 0),
-        meta: metaAtual
-      };
+    const barrasMap = {};
+    operacoes.forEach(o => {
+      const cliente = clientes.find(c => String(c.cliente_id) === String(o.cliente_id));
+      const mes = (o.data_operacao || '').slice(0, 7) || 'sem-data';
+      const key = `${o.cliente_id}|${mes}`;
+      if (!barrasMap[key]) {
+        barrasMap[key] = { cliente_id: text_(o.cliente_id), nome: cliente ? cliente.nome : o.cliente_id, mes, pontos: 0, meta: toNumber_(o.meta_pontos, metaAtual) };
+      }
+      barrasMap[key].pontos += o.pontos_pos - o.pontos_neg;
+      barrasMap[key].meta = Math.max(barrasMap[key].meta, toNumber_(o.meta_pontos, metaAtual));
     });
+    const barras = Object.keys(barrasMap).sort().map(k => barrasMap[k]);
     return {
       linha: Object.keys(linhaMap).sort().map(k => linhaMap[k]),
       barras,
@@ -406,10 +453,10 @@ function buildResumo_(operacoes) {
 
 const CarteiraService = {
   get(filters) {
-    const clientes = ClientesService.list().filter(c => !filters || !filters.cliente_id || c.cliente_id === filters.cliente_id);
+    const clientes = ClientesService.list().filter(c => !filters || !filters.cliente_id || String(c.cliente_id) === String(filters.cliente_id));
     const operacoes = OperacoesService.list(filters || {});
     return clientes.map(c => {
-      const ops = operacoes.filter(o => o.cliente_id === c.cliente_id);
+      const ops = operacoes.filter(o => String(o.cliente_id) === String(c.cliente_id));
       return {
         cliente_id: c.cliente_id,
         nome: c.nome,
@@ -446,6 +493,7 @@ function getAppData(filters) {
 function salvarCliente(cliente) { assertInfra_(); return ClientesService.save(cliente); }
 function softDeleteCliente(uuid) { assertInfra_(); return ClientesService.softDelete(uuid); }
 function registrarOperacao(op) { assertInfra_(); return OperacoesService.save(op); }
+function excluirOperacao(uuid) { assertInfra_(); return OperacoesService.remove(uuid); }
 function salvarMeta(meta) { assertInfra_(); return ConfigService.saveMeta(meta); }
 function getDashboardData(filters) { assertInfra_(); return DashboardService.get(filters || {}); }
 function getCarteira(filters) { assertInfra_(); return CarteiraService.get(filters || {}); }
