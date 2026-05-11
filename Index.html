@@ -6,361 +6,137 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
   <style>
-    :root { --glass: rgba(255, 255, 255, 0.05); --glass-border: rgba(255, 255, 255, 0.12); --accent: #3b82f6; }
-    body { background: #0f172a; color: #f1f5f9; font-family: 'Inter', sans-serif; min-height: 100vh; overflow-x: hidden; }
-    .glass-card { background: var(--glass); backdrop-filter: blur(12px); border: 1px solid var(--glass-border); border-radius: 1rem; }
-    .glass-input { background: rgba(0, 0, 0, 0.3); border: 1px solid var(--glass-border); color: white; border-radius: 0.5rem; padding: 0.6rem 0.8rem; outline: none; width: 100%; font-size: 0.875rem; }
-    .glass-input:focus { border-color: var(--accent); }
-    select.glass-input option { background: #1e293b; color: white; }
-    .btn-primary { background: #2563eb; transition: all 0.2s; }
+    :root { --glass: rgba(255,255,255,.06); --border: rgba(255,255,255,.14); --accent: #38bdf8; }
+    body { min-height: 100vh; margin: 0; background: radial-gradient(circle at top left,#1e3a8a 0,#0f172a 32%,#020617 100%); color: #f8fafc; font-family: Inter, system-ui, sans-serif; }
+    .glass { background: var(--glass); border: 1px solid var(--border); backdrop-filter: blur(14px); border-radius: 18px; }
+    .glass-input { width: 100%; background: rgba(15,23,42,.8); border: 1px solid var(--border); border-radius: 12px; padding: .7rem .85rem; color: #fff; outline: none; }
+    .glass-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(56,189,248,.15); }
+    .btn { border-radius: 12px; padding: .72rem 1rem; font-weight: 800; transition: .2s; }
+    .btn-primary { background: #2563eb; color: #fff; }
     .btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
-    .loader-google { width: 30px; height: 30px; border: 3px solid rgba(255,255,255,0.1); border-top: 3px solid var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
-    @keyframes spin { 100% { transform: rotate(360deg); } }
-    .modal-overlay { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
-    .table-container { scrollbar-width: thin; }
-    .status-badge { padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: bold; text-transform: uppercase; }
+    .btn-ghost { background: rgba(255,255,255,.07); }
+    .badge { border-radius: 999px; padding: 3px 9px; font-size: 10px; font-weight: 800; text-transform: uppercase; }
+    .loader { width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.12); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .modal { background: rgba(2,6,23,.78); backdrop-filter: blur(6px); }
+    .disabled { opacity: .55; pointer-events: none; }
   </style>
 </head>
 <body>
-  <div id="app" class="p-4 md:p-6 max-w-6xl mx-auto mb-20">
-    
-    <div v-if="loading" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60">
-      <div class="loader-google"></div>
-    </div>
+  <div id="app" class="max-w-7xl mx-auto p-4 md:p-6 pb-12">
+    <div v-if="loading" class="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/60"><div class="loader"></div></div>
 
-    <!-- Header Principal -->
-    <header class="flex justify-between items-center mb-8">
+    <header class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-7">
       <div>
-        <h1 class="text-2xl font-bold bg-gradient-to-r from-blue-400 to-emerald-400 bg-clip-text text-transparent">Apollo SAE</h1>
-        <p class="text-slate-500 text-xs tracking-widest uppercase">Investment Management</p>
+        <h1 class="text-3xl font-black bg-gradient-to-r from-sky-300 to-emerald-300 bg-clip-text text-transparent">SAE Investimentos</h1>
+        <p class="text-xs text-slate-400 uppercase tracking-[.25em]">Sistema Apollo Enterprise • GAS + Sheets</p>
       </div>
       <div class="flex gap-2">
-         <button @click="runSetup" class="p-2 glass-card hover:bg-white/10" title="Sincronizar Banco">🔄</button>
+        <button class="btn btn-ghost" @click="setup">🔄 Setup</button>
+        <button class="btn btn-ghost" @click="preRelease">🧪 Check</button>
       </div>
     </header>
 
-    <!-- Tabs Estilo SAE -->
-    <nav class="flex gap-2 mb-8 overflow-x-auto pb-2 no-scrollbar">
-      <button v-for="t in tabs" :key="t.id" @click="changeTab(t.id)"
-        :class="['px-5 py-2.5 rounded-xl transition flex items-center gap-2 text-sm font-medium', currentTab === t.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700']">
-        <span>{{ t.icon }}</span> {{ t.name }}
-      </button>
+    <nav class="flex gap-2 overflow-x-auto pb-3 mb-5">
+      <button v-for="tab in tabs" :key="tab.id" @click="changeTab(tab.id)" :class="['btn whitespace-nowrap', currentTab===tab.id ? 'btn-primary' : 'btn-ghost text-slate-300']">{{ tab.icon }} {{ tab.name }}</button>
     </nav>
 
-    <!-- TAB DASHBOARD -->
-    <main v-if="currentTab === 'dash'" class="animate__animated animate__fadeIn space-y-6">
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="glass-card p-5 border-l-4 border-emerald-500">
-          <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Lucro Líquido</p>
-          <h2 class="text-2xl font-bold text-emerald-400">R$ {{ stats.totalLiquido.toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
-        </div>
-        <div class="glass-card p-5 border-l-4 border-blue-500">
-          <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Total Operações</p>
-          <h2 class="text-2xl font-bold text-blue-400">{{ stats.totalOperacoes }}</h2>
-        </div>
-        <div class="glass-card p-5 border-l-4 border-slate-500">
-          <p class="text-slate-500 text-[10px] uppercase font-bold mb-1">Taxas Acumuladas</p>
-          <h2 class="text-2xl font-bold text-slate-300">R$ {{ stats.totalTaxas.toLocaleString('pt-BR', {minimumFractionDigits:2}) }}</h2>
-        </div>
-      </div>
-      <div class="glass-card p-6">
-        <div class="h-80 w-full"><canvas id="mainChart"></canvas></div>
-      </div>
+    <div v-if="error" class="glass border-red-500/40 text-red-200 p-3 mb-4 text-sm">{{ error }}</div>
+
+    <main v-if="currentTab==='dashboard'" class="space-y-5">
+      <section class="glass p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+        <select v-model="filters.cliente_id" @change="refresh" class="glass-input"><option value="">Todos os clientes</option><option v-for="c in clientes" :value="c.cliente_id">{{ c.cliente_id }} - {{ c.nome }}</option></select>
+        <input v-model="filters.de" @change="refresh" type="date" class="glass-input">
+        <input v-model="filters.ate" @change="refresh" type="date" class="glass-input">
+        <button class="btn btn-primary" @click="refresh">Aplicar filtros</button>
+      </section>
+      <section class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="glass p-5"><p class="text-xs text-slate-400 uppercase">Take acumulado</p><h2 class="text-2xl font-black text-emerald-300">{{ brl(dashboard.resumo?.total_take) }}</h2></div>
+        <div class="glass p-5"><p class="text-xs text-slate-400 uppercase">Stop acumulado</p><h2 class="text-2xl font-black text-red-300">{{ brl(dashboard.resumo?.total_stop) }}</h2></div>
+        <div class="glass p-5"><p class="text-xs text-slate-400 uppercase">Saldo carteira</p><h2 class="text-2xl font-black text-sky-300">{{ brl(dashboard.resumo?.saldo_total) }}</h2></div>
+        <div class="glass p-5"><p class="text-xs text-slate-400 uppercase">Operações</p><h2 class="text-2xl font-black">{{ dashboard.resumo?.total_operacoes || 0 }}</h2></div>
+      </section>
+      <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="glass p-4"><h3 class="font-bold mb-3">Pontos negativos x positivos</h3><div class="h-80"><canvas id="lineChart"></canvas></div></div>
+        <div class="glass p-4"><h3 class="font-bold mb-3">Pontos por cliente x meta</h3><div class="h-80"><canvas id="barChart"></canvas></div></div>
+      </section>
     </main>
 
-    <!-- TAB INVESTIDORES (LISTA E MODAL) -->
-    <section v-if="currentTab === 'investidores'" class="animate__animated animate__fadeIn space-y-4">
-      <div class="flex flex-col md:flex-row justify-between gap-4">
-        <h2 class="text-xl font-bold flex items-center gap-2">Gestão de Investidores <span class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">{{ clientes.length }}</span></h2>
-        <div class="flex gap-2">
-          <input v-model="busca" class="glass-input !w-64" placeholder="Buscar por nome ou e-mail...">
-          <button @click="openModal()" class="btn-primary px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg">
-            <span>➕</span> Novo
-          </button>
-        </div>
-      </div>
-
-      <div class="glass-card overflow-hidden">
-        <div class="overflow-x-auto table-container">
-          <table class="w-full text-left text-xs">
-            <thead class="bg-slate-800/80 text-slate-400 uppercase font-bold">
-              <tr>
-                <th class="p-4">ID</th>
-                <th class="p-4">Data</th>
-                <th class="p-4">Status</th>
-                <th class="p-4">Investidor</th>
-                <th class="p-4">Contato</th>
-                <th class="p-4">Localização</th>
-                <th class="p-4 text-center">Ações</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-800">
-              <tr v-for="c in clientesFiltrados" :key="c.uuid" class="hover:bg-white/5 transition" :class="c.status === 'Inativo' ? 'opacity-50' : ''">
-                <td class="p-4 font-mono text-blue-400">#{{ String(c.id_sequencial).padStart(4, '0') }}</td>
-                <td class="p-4">{{ new Date(c.data_cadastro).toLocaleDateString('pt-BR') }}</td>
-                <td class="p-4">
-                  <span :class="['status-badge', c.status === 'Ativo' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400']">{{ c.status }}</span>
-                </td>
-                <td class="p-4">
-                  <div class="font-bold text-white">{{ c.nome }}</div>
-                  <div class="text-[10px] text-slate-500 italic">{{ c.idade }} anos | {{ c.redes_sociais || 'Sem redes' }}</div>
-                </td>
-                <td class="p-4">
-                  <div>{{ c.telefone }}</div>
-                  <div class="text-slate-500">{{ c.email }}</div>
-                </td>
-                <td class="p-4 uppercase">{{ c.cidade }} / {{ c.estado }}</td>
-                <td class="p-4">
-                  <div class="flex justify-center gap-2">
-                    <button @click="openModal(c)" class="p-2 hover:bg-blue-500/20 rounded-lg text-blue-400" title="Editar">✏️</button>
-                    <button @click="toggleStatus(c)" class="p-2 hover:bg-amber-500/20 rounded-lg text-amber-400" title="Mudar Status">🔄</button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <section v-if="currentTab==='clientes'" class="space-y-4">
+      <div class="flex justify-between gap-3 items-center"><h2 class="text-xl font-black">Gestão de Clientes</h2><button class="btn btn-primary" @click="openCliente()">➕ Novo Cliente</button></div>
+      <div class="glass overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-xs text-left">
+        <thead class="bg-slate-900/70 text-slate-300 uppercase"><tr><th class="p-3">ID</th><th class="p-3">Data</th><th class="p-3">Status</th><th class="p-3">Nome</th><th class="p-3">Rede social</th><th class="p-3">Contato</th><th class="p-3">Cidade/UF</th><th class="p-3">Mensalidade</th><th class="p-3">Capital</th><th class="p-3">Ações</th></tr></thead>
+        <tbody class="divide-y divide-slate-800"><tr v-for="c in clientes" :key="c.uuid" :class="c.status==='Inativo' ? 'opacity-50' : ''">
+          <td class="p-3 font-mono text-sky-300">{{ c.cliente_id }}</td><td class="p-3">{{ dateBr(c.data_cadastro) }}</td><td class="p-3"><span :class="statusClass(c.status)">{{ c.status }}</span></td><td class="p-3 font-bold">{{ c.nome }}<div class="text-slate-400 text-[10px]">{{ c.idade }} anos</div></td><td class="p-3 text-sky-200">{{ c.redes_sociais || '-' }}</td><td class="p-3">{{ phoneBr(c.telefone) }}<div class="text-sky-200">{{ c.email }}</div></td><td class="p-3">{{ c.cidade }}/{{ c.estado }}</td><td class="p-3">{{ brl(c.valor_mensalidade) }}</td><td class="p-3">{{ brl(c.capital_inicial_contrato) }}</td>
+          <td class="p-3"><div class="flex gap-2"><button class="text-sky-300" @click="openCliente(c)">✏️</button><button class="text-amber-300" @click="softDelete(c)">🚫</button><button class="text-emerald-300" @click="openOperacao(c)">📈</button></div></td>
+        </tr></tbody>
+      </table></div></div>
     </section>
 
-    <!-- TAB OPERACIONAL -->
-    <section v-if="currentTab === 'operacional'" class="glass-card p-6 animate__animated animate__fadeIn max-w-2xl mx-auto">
-      <h2 class="text-xl font-bold mb-6 text-emerald-400 flex items-center gap-2"><span>📈</span> Lançamento Operacional</h2>
-      <div class="space-y-4">
-        <div>
-          <label class="text-[10px] text-slate-500 uppercase ml-1">Investidor Ativo</label>
-          <select v-model="formO.cliente_id" class="glass-input">
-            <option value="">Selecione...</option>
-            <option v-for="c in clientesAtivos" :value="c.uuid">{{ c.nome }}</option>
-          </select>
-        </div>
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Nº Contratos</label>
-            <input v-model="formO.contratos" type="number" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Valor por Contrato</label>
-            <input v-model="formO.valor_por_contrato" step="0.01" type="number" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-emerald-500 uppercase ml-1 font-bold">Pontos (+)</label>
-            <input v-model="formO.pontos_pos" type="number" class="glass-input border-emerald-500/30">
-          </div>
-          <div>
-            <label class="text-[10px] text-red-500 uppercase ml-1 font-bold">Pontos (-)</label>
-            <input v-model="formO.pontos_neg" type="number" class="glass-input border-red-500/30">
-          </div>
-        </div>
-        <button @click="saveOperacao" class="w-full bg-emerald-600 p-4 rounded-xl font-bold mt-4 shadow-lg">Registrar Resultado</button>
-      </div>
+    <section v-if="currentTab==='operacoes'" class="space-y-4">
+      <div class="flex justify-between gap-3 items-center"><h2 class="text-xl font-black">Operações</h2><button class="btn btn-primary" @click="openOperacao()">➕ Nova Operação</button></div>
+      <div class="glass overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-xs text-left">
+        <thead class="bg-slate-900/70 uppercase"><tr><th class="p-3">Cliente</th><th class="p-3">Data</th><th class="p-3">Capital</th><th class="p-3">Contratos</th><th class="p-3">Valor/Contrato</th><th class="p-3">Pontos +</th><th class="p-3">Pontos -</th><th class="p-3">Meta</th><th class="p-3">% Ganho</th><th class="p-3">Take</th><th class="p-3">Stop</th><th class="p-3">Ações</th></tr></thead>
+        <tbody class="divide-y divide-slate-800"><tr v-for="o in operacoes" :key="o.uuid"><td class="p-3">{{ o.cliente_id }} - {{ o.nome }}</td><td class="p-3">{{ dateBr(o.data_operacao) }}</td><td class="p-3">{{ brl(o.capital_inicial_contrato) }}</td><td class="p-3">{{ o.n_contratos }}</td><td class="p-3">{{ brl(o.valor_por_contrato) }}</td><td class="p-3 text-emerald-300">{{ o.pontos_pos }}</td><td class="p-3 text-red-300">{{ o.pontos_neg }}</td><td class="p-3 text-amber-200">{{ o.meta_pontos }}</td><td class="p-3">{{ percent(o.percentual_ganho) }}</td><td class="p-3">{{ brl(o.take) }}</td><td class="p-3">{{ brl(o.stop) }}</td><td class="p-3"><div class="flex gap-2"><button class="text-sky-300" @click="openOperacao(o)">✏️</button><button class="text-red-300" @click="deleteOperacao(o)">🗑️</button></div></td></tr></tbody>
+      </table></div></div>
     </section>
 
-    <!-- MODAL CADASTRO/EDIÇÃO INVESTIDOR -->
-    <div v-if="modal.open" class="fixed inset-0 z-[110] flex items-center justify-center p-4 modal-overlay animate__animated animate__fadeIn animate__faster">
-      <div class="glass-card w-full max-w-2xl p-6 shadow-2xl relative bg-slate-900 border-white/20">
-        <button @click="modal.open = false" class="absolute top-4 right-4 text-slate-400 hover:text-white text-2xl">✕</button>
-        
-        <h2 class="text-xl font-bold mb-6 text-blue-400">{{ formC.uuid ? 'Editar' : 'Cadastrar' }} Investidor</h2>
-        
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div class="md:col-span-2">
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Nome Completo</label>
-            <input v-model="formC.nome" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Idade</label>
-            <input v-model="formC.idade" type="number" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Telefone (Fixo/Whats)</label>
-            <input v-model="formC.telefone" class="glass-input" placeholder="(00) 00000-0000">
-          </div>
-          <div class="md:col-span-2">
-            <label class="text-[10px] text-slate-500 uppercase ml-1">E-mail</label>
-            <input v-model="formC.email" type="email" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Cidade</label>
-            <input v-model="formC.cidade" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Estado (UF)</label>
-            <input v-model="formC.estado" class="glass-input" maxlength="2">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Redes Sociais</label>
-            <input v-model="formC.redes_sociais" class="glass-input" placeholder="@usuario">
-          </div>
-          <div class="md:col-span-3 h-[1px] bg-white/10 my-2"></div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Mensalidade (R$)</label>
-            <input v-model="formC.valor_mensalidade" type="number" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-slate-500 uppercase ml-1">Vencimento (Dia)</label>
-            <input v-model="formC.vencimento_dia" type="number" class="glass-input">
-          </div>
-          <div>
-            <label class="text-[10px] text-blue-400 uppercase ml-1 font-bold">Capital/Contrato</label>
-            <input v-model="formC.capital_inicial_contrato" type="number" class="glass-input border-blue-500/30">
-          </div>
-        </div>
+    <section v-if="currentTab==='carteira'" class="space-y-4">
+      <h2 class="text-xl font-black">Carteira Cliente</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"><article v-for="c in carteira" :key="c.cliente_id" class="glass p-4"><div class="flex justify-between"><h3 class="font-black">{{ c.nome }}</h3><span :class="statusClass(c.status)">{{ c.status }}</span></div><p class="text-slate-400 text-xs">{{ c.cliente_id }}</p><div class="mt-3 grid grid-cols-3 gap-2 text-center"><div><p class="text-xs text-slate-400">Pontos +</p><b class="text-emerald-300">{{ c.pontos_pos }}</b></div><div><p class="text-xs text-slate-400">Pontos -</p><b class="text-red-300">{{ c.pontos_neg }}</b></div><div><p class="text-xs text-slate-400">Saldo</p><b class="text-sky-300">{{ brl(c.saldo_total) }}</b></div></div></article></div>
+    </section>
 
-        <div class="flex gap-2">
-          <button @click="modal.open = false" class="flex-1 bg-slate-800 p-3 rounded-lg font-bold">Cancelar</button>
-          <button @click="saveCliente" class="flex-[2] btn-primary p-3 rounded-lg font-bold">Salvar Registro</button>
-        </div>
-      </div>
-    </div>
 
+
+    <div v-if="modalCliente.open" class="fixed inset-0 z-50 modal flex items-center justify-center p-4"><div class="glass w-full max-w-4xl p-6"><div class="flex justify-between mb-4"><h2 class="text-xl font-black">{{ formCliente.uuid ? 'Editar' : 'Cadastrar' }} Cliente</h2><button @click="modalCliente.open=false">✕</button></div><div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div><label class="text-xs text-slate-400 uppercase">ID Cliente</label><input v-model="formCliente.cliente_id" class="glass-input"></div><div class="md:col-span-2"><label class="text-xs text-slate-400 uppercase">Nome</label><input v-model="formCliente.nome" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Status</label><select v-model="formCliente.status" class="glass-input"><option>Ativo</option><option>Inativo</option><option>Potencial</option></select></div><div><label class="text-xs text-slate-400 uppercase">Idade</label><input v-model="formCliente.idade" type="number" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Telefone</label><input v-model="formCliente.telefone" class="glass-input"></div><div class="md:col-span-2"><label class="text-xs text-slate-400 uppercase">E-mail</label><input v-model="formCliente.email" type="email" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Cidade</label><input v-model="formCliente.cidade" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Estado</label><input v-model="formCliente.estado" maxlength="2" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Redes Sociais</label><input v-model="formCliente.redes_sociais" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Mensalidade R$</label><input v-model="formCliente.valor_mensalidade" type="number" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Vencimento dia</label><input v-model="formCliente.vencimento_dia" type="number" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Capital inicial R$</label><input v-model="formCliente.capital_inicial_contrato" type="number" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Pagamento R$</label><input v-model="formCliente.pagamento_valor" type="number" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Data Pagamento</label><input v-model="formCliente.data_pagamento" type="date" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Data Desligamento</label><input v-model="formCliente.data_desligamento" type="date" class="glass-input"></div>
+    </div><div class="flex justify-end gap-2 mt-5"><button class="btn btn-ghost" @click="modalCliente.open=false">Cancelar</button><button class="btn btn-primary" :class="actionLock?'disabled':''" @click="saveCliente">Salvar</button></div></div></div>
+
+    <div v-if="modalOperacao.open" class="fixed inset-0 z-50 modal flex items-center justify-center p-4"><div class="glass w-full max-w-3xl p-6"><div class="flex justify-between mb-4"><h2 class="text-xl font-black">Lançamento de Operação</h2><button @click="modalOperacao.open=false">✕</button></div><div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="md:col-span-3"><label class="text-xs text-slate-400 uppercase">Cliente</label><select v-model="formOperacao.cliente_id" @change="syncCapital" class="glass-input"><option value="">Selecione</option><option v-for="c in clientesAtivos" :value="String(c.cliente_id)">{{ c.cliente_id }} - {{ c.nome }}</option></select></div><div><label class="text-xs text-slate-400 uppercase">Data Operação</label><input v-model="formOperacao.data_operacao" type="date" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Capital inicial R$</label><input v-model="formOperacao.capital_inicial_contrato" type="number" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Nº contratos</label><input v-model="formOperacao.n_contratos" type="number" class="glass-input"></div><div><label class="text-xs text-slate-400 uppercase">Valor por contrato</label><input v-model="formOperacao.valor_por_contrato" type="number" step="0.01" class="glass-input"></div><div><label class="text-xs text-amber-200 uppercase">Meta do cliente/mês</label><input v-model="formOperacao.meta_pontos" type="number" class="glass-input"></div><div><label class="text-xs text-emerald-300 uppercase">Pontos positivos</label><input v-model="formOperacao.pontos_pos" type="number" class="glass-input"></div><div><label class="text-xs text-red-300 uppercase">Pontos negativos</label><input v-model="formOperacao.pontos_neg" type="number" class="glass-input"></div></div><div class="flex justify-end gap-2 mt-5"><button class="btn btn-ghost" @click="modalOperacao.open=false">Cancelar</button><button class="btn btn-primary" :class="actionLock?'disabled':''" @click="saveOperacao">Registrar</button></div></div></div>
+
+    <footer class="mt-10 text-center text-xs text-slate-400 pb-4">@2026 - SAE - Sistema Apollo Eficiente - Desenvolvido para Anderson</footer>
   </div>
 
   <script>
-    const { createApp, ref, onMounted, computed, nextTick } = Vue;
-    createApp({
-      setup() {
-        const loading = ref(false);
-        const currentTab = ref('dash');
-        const clientes = ref([]);
-        const operacoes = ref([]);
-        const stats = ref({ totalLiquido: 0, totalTaxas: 0, totalOperacoes: 0 });
-        const busca = ref('');
-        const modal = ref({ open: false });
-        let chart = null;
-
-        const tabs = [
-          { id: 'dash', name: 'Dashboard', icon: '📊' },
-          { id: 'investidores', name: 'Investidores', icon: '👥' },
-          { id: 'operacional', name: 'Operacional', icon: '📈' }
-        ];
-
-        const formC = ref({});
-        const formO = ref({ cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0 });
-
-        const resetFormC = () => {
-          formC.value = {
-            uuid: null,
-            data_cadastro: new Date().toISOString(),
-            status: 'Ativo',
-            nome: '', idade: '', telefone: '', email: '', cidade: '', estado: '', redes_sociais: '',
-            valor_mensalidade: 100, vencimento_dia: 10, capital_inicial_contrato: 500
-          };
-        };
-
-        const clientesFiltrados = computed(() => {
-          const b = busca.value.toLowerCase();
-          return clientes.value.filter(c => c.nome.toLowerCase().includes(b) || c.email.toLowerCase().includes(b));
-        });
-
-        const clientesAtivos = computed(() => clientes.value.filter(c => c.status === 'Ativo'));
-
-        const openModal = (item = null) => {
-          if (item) {
-            formC.value = { ...item };
-          } else {
-            resetFormC();
-          }
-          modal.value.open = true;
-        };
-
-        const toggleStatus = (cliente) => {
-          loading.value = true;
-          const novoStatus = cliente.status === 'Ativo' ? 'Inativo' : 'Ativo';
-          const payload = { ...cliente, status: novoStatus };
-          google.script.run.withSuccessHandler(() => {
-            loadData();
-          }).salvarCliente(payload);
-        };
-
-        const initChart = () => {
-          const ctx = document.getElementById('mainChart');
-          if (!ctx || operacoes.value.length === 0) return;
-          if (chart) chart.destroy();
-          
-          const labels = operacoes.value.map(o => new Date(o.data_iso).toLocaleDateString('pt-BR')).slice(-20);
-          const valores = operacoes.value.map(o => o.lucro_liquido).slice(-20);
-
-          chart = new Chart(ctx, {
-            type: 'line',
-            data: {
-              labels,
-              datasets: [{
-                label: 'Resultados (R$)',
-                data: valores,
-                borderColor: '#3b82f6',
-                backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                tension: 0.4, fill: true, pointRadius: 4
-              }]
-            },
-            options: { 
-              responsive: true, maintainAspectRatio: false,
-              scales: { y: { grid: { color: 'rgba(255,255,255,0.05)' } }, x: { grid: { display: false } } }
-            }
-          });
-        };
-
-        const loadData = () => {
-          loading.value = true;
-          google.script.run.withSuccessHandler(c => {
-            clientes.value = c;
-            google.script.run.withSuccessHandler(s => {
-              stats.value = s;
-              google.script.run.withSuccessHandler(ops => {
-                operacoes.value = ops;
-                loading.value = false;
-                if (currentTab.value === 'dash') nextTick(() => initChart());
-              }).getOperacoes();
-            }).getDashboardData();
-          }).getClientes();
-        };
-
-        const saveCliente = () => {
-          if (!formC.value.nome || !formC.value.telefone || !formC.value.email) {
-            return alert("Nome, Telefone e E-mail são obrigatórios.");
-          }
-          loading.value = true;
-          google.script.run
-            .withSuccessHandler(() => {
-              modal.value.open = false;
-              loadData();
-            })
-            .withFailureHandler(err => {
-              loading.value = false;
-              alert(err.message);
-            })
-            .salvarCliente(formC.value);
-        };
-
-        const saveOperacao = () => {
-          if (!formO.value.cliente_id) return alert("Selecione um investidor.");
-          loading.value = true;
-          const c = clientes.value.find(x => x.uuid === formO.value.cliente_id);
-          formO.value.capital_base = c ? c.capital_inicial_contrato : 0;
-          
-          google.script.run.withSuccessHandler(() => {
-            formO.value = { cliente_id: '', contratos: 1, valor_por_contrato: 0.20, pontos_pos: 0, pontos_neg: 0 };
-            loadData();
-            changeTab('dash');
-          }).registrarOperacao(formO.value);
-        };
-
-        const changeTab = (id) => {
-          currentTab.value = id;
-          if (id === 'dash') nextTick(() => initChart());
-        };
-
-        const runSetup = () => {
-          loading.value = true;
-          google.script.run.withSuccessHandler(m => { alert(m); loadData(); }).setupDatabase();
-        };
-
-        onMounted(loadData);
-        return { loading, currentTab, tabs, clientes, stats, busca, modal, formC, formO, clientesFiltrados, clientesAtivos, changeTab, openModal, saveCliente, saveOperacao, toggleStatus, runSetup };
-      }
-    }).mount('#app');
+    const { createApp, ref, computed, onMounted, nextTick } = Vue;
+    createApp({ setup() {
+      const loading = ref(false), actionLock = ref(false), error = ref(''), currentTab = ref('dashboard');
+      const clientes = ref([]), operacoes = ref([]), carteira = ref([]), defaultMeta = ref(750);
+      const dashboard = ref({ resumo: {}, linha: [], barras: [] });
+      const filters = ref({ cliente_id: '', de: '', ate: '' });
+      const modalCliente = ref({ open: false }), modalOperacao = ref({ open: false });
+      const formCliente = ref({}), formOperacao = ref({});
+      const tabs = [{id:'dashboard',name:'Dashboard',icon:'📊'},{id:'clientes',name:'Clientes',icon:'👥'},{id:'operacoes',name:'Operações',icon:'📈'},{id:'carteira',name:'Carteira Cliente',icon:'💼'}];
+      let lineChart = null, barChart = null;
+      const clientesAtivos = computed(() => clientes.value.filter(c => c.status !== 'Inativo'));
+      const brl = v => Number(v || 0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+      const percent = v => `${Number(v || 0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}%`;
+      const dateBr = iso => { if(!iso) return '-'; const raw=String(iso); const m=raw.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : new Date(raw).toLocaleDateString('pt-BR'); };
+      const phoneBr = v => String(v || '').replace(/\D/g,'').replace(/^(\d{2})(\d{5})(\d{4})$/,'($1) $2-$3');
+      const todayInput = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+      const statusClass = s => ['badge', s==='Ativo' ? 'bg-emerald-500/20 text-emerald-300' : s==='Inativo' ? 'bg-red-500/20 text-red-300' : 'bg-amber-500/20 text-amber-200'];
+      const apiFail = err => { loading.value = false; actionLock.value = false; error.value = err.message || String(err); };
+      const refresh = () => { loading.value = true; google.script.run.withSuccessHandler(data => { clientes.value=data.clientes; operacoes.value=data.operacoes; carteira.value=data.carteira; dashboard.value=data.dashboard; defaultMeta.value=(data.defaults&&data.defaults.meta_pontos_padrao)||750; loading.value=false; nextTick(drawCharts); }).withFailureHandler(apiFail).getAppData(filters.value); };
+      const drawCharts = () => {
+        const line = document.getElementById('lineChart'), bar = document.getElementById('barChart');
+        if (line) { if (lineChart) lineChart.destroy(); lineChart = new Chart(line,{type:'line',data:{labels:dashboard.value.linha.map(x=>dateBr(x.data)),datasets:[{label:'Pontos +',data:dashboard.value.linha.map(x=>x.pontos_pos),borderColor:'#34d399',backgroundColor:'rgba(52,211,153,.12)',tension:.35},{label:'Pontos -',data:dashboard.value.linha.map(x=>x.pontos_neg),borderColor:'#f87171',backgroundColor:'rgba(248,113,113,.12)',tension:.35}]},options:{responsive:true,maintainAspectRatio:false}}); }
+        if (bar) { if (barChart) barChart.destroy(); barChart = new Chart(bar,{type:'bar',data:{labels:dashboard.value.barras.map(x=>`${x.mes_label || x.mes} • ${x.nome}`),datasets:[{label:'Pontos',data:dashboard.value.barras.map(x=>x.pontos),backgroundColor:'rgba(56,189,248,.65)'},{label:'Meta',data:dashboard.value.barras.map(x=>x.meta),backgroundColor:'rgba(251,191,36,.55)'}]},options:{responsive:true,maintainAspectRatio:false}}); }
+      };
+      const setup = () => { loading.value=true; google.script.run.withSuccessHandler(r=>{ loading.value=false; alert(r.message); refresh(); }).withFailureHandler(apiFail).setupDatabase(); };
+      const preRelease = () => { loading.value=true; google.script.run.withSuccessHandler(r=>{ loading.value=false; alert(r.release_ready ? 'Infraestrutura pronta para release.' : 'Pendências: '+JSON.stringify(r.issues)); }).withFailureHandler(apiFail).runPreReleaseHealthCheck(); };
+      const changeTab = tab => { currentTab.value=tab; if (tab==='dashboard') nextTick(drawCharts); };
+      const newCliente = () => ({ status:'Ativo', cliente_id:'', nome:'', idade:'', telefone:'', email:'', cidade:'', estado:'', redes_sociais:'', valor_mensalidade:0, vencimento_dia:10, capital_inicial_contrato:0, pagamento_valor:0, data_pagamento:'', data_desligamento:'' });
+      const openCliente = c => { formCliente.value = c ? {...c, data_pagamento:(c.data_pagamento||'').slice(0,10), data_desligamento:(c.data_desligamento||'').slice(0,10)} : newCliente(); modalCliente.value.open=true; };
+      const saveCliente = () => { if(actionLock.value) return; actionLock.value=true; loading.value=true; google.script.run.withSuccessHandler(()=>{ actionLock.value=false; modalCliente.value.open=false; refresh(); }).withFailureHandler(apiFail).salvarCliente(formCliente.value); };
+      const softDelete = c => { if(actionLock.value) return; actionLock.value=true; loading.value=true; google.script.run.withSuccessHandler(()=>{ actionLock.value=false; refresh(); }).withFailureHandler(apiFail).softDeleteCliente(c.uuid); };
+      const openOperacao = item => { const isOp = item && item.data_operacao; const cliente = isOp ? clientes.value.find(c=>String(c.cliente_id)===String(item.cliente_id)) : item; formOperacao.value = isOp ? { ...item, cliente_uuid: cliente ? cliente.uuid : '', data_operacao:(item.data_operacao||'').slice(0,10) } : { uuid:'', cliente_id: cliente ? String(cliente.cliente_id || '') : '', cliente_uuid: cliente ? cliente.uuid : '', data_operacao: todayInput(), capital_inicial_contrato: cliente ? cliente.capital_inicial_contrato : 0, n_contratos:1, valor_por_contrato:.20, meta_pontos: defaultMeta.value || 750, pontos_pos:0, pontos_neg:0 }; modalOperacao.value.open=true; };
+      const syncCapital = () => { const c = clientes.value.find(x=>String(x.cliente_id)===String(formOperacao.value.cliente_id)); if(c) { formOperacao.value.cliente_uuid = c.uuid; formOperacao.value.capital_inicial_contrato = c.capital_inicial_contrato; if(!formOperacao.value.meta_pontos) formOperacao.value.meta_pontos = defaultMeta.value || 750; } };
+      const saveOperacao = () => { if(actionLock.value) return; actionLock.value=true; loading.value=true; google.script.run.withSuccessHandler(()=>{ actionLock.value=false; modalOperacao.value.open=false; refresh(); }).withFailureHandler(apiFail).registrarOperacao(formOperacao.value); };
+      const deleteOperacao = o => { if(actionLock.value || !confirm('Excluir esta operação?')) return; actionLock.value=true; loading.value=true; google.script.run.withSuccessHandler(()=>{ actionLock.value=false; refresh(); }).withFailureHandler(apiFail).excluirOperacao(o.uuid); };
+      onMounted(() => google.script.run.withSuccessHandler(r => { if(!r.success) setup(); else refresh(); }).withFailureHandler(apiFail).healthCheck());
+      return { loading, actionLock, error, currentTab, tabs, clientes, operacoes, carteira, dashboard, filters, modalCliente, modalOperacao, formCliente, formOperacao, clientesAtivos, brl, percent, dateBr, phoneBr, statusClass, setup, preRelease, refresh, changeTab, openCliente, saveCliente, softDelete, openOperacao, syncCapital, saveOperacao, deleteOperacao };
+    }}).mount('#app');
   </script>
 </body>
 </html>

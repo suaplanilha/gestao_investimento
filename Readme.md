@@ -1,191 +1,65 @@
-SAE - Sistema Apollo Enterprise: Gestão de Investimentos
-
-Documentação Técnica de Arquitetura e Protocolos
-Versão: 2.0 (Fase de Escalonamento)
-Responsável: Anderson
-
-1. Visão Geral do Sistema
-
-O SAE Mini Índice é um ERP desenvolvido sobre a infraestrutura do Google Cloud (Google Apps Script) para gestão de carteira de investidores e monitoramento de operações financeiras. O sistema utiliza uma arquitetura Single-File WebApp com persistência de dados em Google Sheets, seguindo os padrões de design Glassmorphism SAE.
-
-2. Arquitetura de Dados (Database)
-
-O banco de dados reside em uma planilha Google, onde cada aba representa uma entidade normalizada.
-
-2.1. Entidade: clientes
-
-Armazena o cadastro mestre dos investidores.
-
-Campo
-
-Tipo
-
-Descrição
-
-Regra de Negócio
-
-uuid
-
-String
-
-Identificador Único Universal
-
-Gerado via Utilities.getUuid().
-
-id_sequencial
-
-Integer
-
-ID de Controle Visual
-
-Incremental automático (Ex: 1, 2, 3...).
-
-data_cadastro
-
-ISO8601
-
-Data de entrada no sistema
-
-Automação: new Date().toISOString().
-
-status
-
-String
-
-Estado do registro
-
-Padrão: "Ativo". Opções: "Ativo", "Inativo".
-
-nome
-
-String
-
-Nome completo
-
-Campo obrigatório.
-
-idade
-
-Integer
-
-Idade do investidor
-
-Utilizado para análise de perfil.
-
-telefone
-
-String
-
-Contato Primário
-
-Chave Única. Bloqueia duplicidade no backend.
-
-email
-
-String
-
-Contato Secundário
-
-Chave Única. Bloqueia duplicidade no backend.
-
-cidade
-
-String
-
-Município de residência
-
-Exibição mesclada com Estado no Frontend.
-
-estado
-
-String (2)
-
-Unidade Federativa
-
-Armazenado em uppercase (Sigla).
-
-redes_sociais
-
-String
-
-Handlers sociais
-
-Ex: @usuario.
-
-valor_mensalidade
-
-Number
-
-Valor de faturamento
-
-Base para o módulo de faturamento (v3.0).
-
-vencimento_dia
-
-Integer
-
-Dia para cobrança
-
-Inteiro de 1 a 31.
-
-capital_inicial
-
-Number
-
-Margem por contrato
-
-Valor base para cálculo de % de ganho.
-
-2.2. Entidade: operacoes
-
-Registro histórico de todas as entradas no mercado.
-
-Relacionamento: N:1 com a tabela clientes via cliente_id.
-
-Cálculos Automáticos: - Lucro Bruto = (Pontos+ - Pontos-) * Contratos * Valor_Ponto
-
-Taxas = Contratos * 0.25
-
-Lucro Líquido = Lucro Bruto - Taxas
-
-3. Regras de Negócio e Segurança (Backend)
-
-3.1. Validação de Integridade
-
-O backend (Código.js) implementa uma camada de segurança antes do appendRow:
-
-Verificação de Existência: Antes de inserir, o sistema varre as colunas telefone e email.
-
-Tratamento de Erros: Se houver colisão, o GAS dispara um Error que é capturado pelo withFailureHandler no Vue 3, exibindo uma mensagem amigável ao usuário e impedindo o registro duplo.
-
-3.2. Formatação PT-BR
-
-Datas: Todas as datas são armazenadas em ISO (YYYY-MM-DDTHH:mm) para garantir ordenação correta, mas são convertidas para toLocaleDateString('pt-BR') na renderização.
-
-Moeda: Valores financeiros seguem o padrão BRL (R$ 0,00).
-
-4. Frontend (UI/UX Protocol)
-
-4.1. Componentes Vue 3
-
-Modal de Cadastro: Utiliza position: fixed com backdrop-filter para foco total na entrada de dados.
-
-Tabela Dinâmica: Implementa filtros em tempo real usando Computed Properties do Vue, garantindo performance mesmo com centenas de clientes.
-
-Mesclagem Visual: No front, cidade e estado são concatenados ({{c.cidade}} / {{c.estado}}) para "economia de espaço", conforme diretriz SAE.
-
-4.2. Estados da Interface
-
-Loading State: Ativado globalmente via variável loading durante qualquer comunicação com o google.script.run.
-
-Empty State: Verificação de clientes.length para exibição de mensagens de "Nenhum investidor encontrado".
-
-5. Próximos Passos (Roadmap)
-
-[ ] Módulo Faturamento: Cruzamento entre vencimento_dia e data atual para gerar alertas de pendência.
-
-[ ] Interligação de Saldos: Atualização automática da aba saldos após cada registro em operacoes.
-
-[ ] Gráficos Avançados: Implementação de evolução patrimonial por investidor.
-
-Documento gerado automaticamente pelo Sistema SAE. Proibida alteração de chaves primárias sem aviso prévio ao arquiteto do sistema.
+# SAE - Sistema Apollo Enterprise para Gestão de Investimentos
+
+## Visão geral
+
+Este projeto é um WebApp em Google Apps Script (GAS) para gestão pessoal de clientes e operações de índice/investimento. O SAE utiliza Google Sheets como banco de dados relacional simples, Vue 3 via CDN no frontend e `google.script.run` como ponte segura entre interface e backend.
+
+## Stack obrigatória
+
+- **Frontend:** Vue 3 CDN, HTML single-file, CSS utilitário, mobile-first, Chart.js CDN.
+- **Backend:** Google Apps Script V8, HtmlService e funções públicas para `google.script.run`.
+- **Banco:** Google Sheets, uma aba por entidade, UUID sistêmico, datas ISO e números normalizados no backend.
+- **Sem:** React, JSX, bundlers, Babel runtime ou backend externo.
+
+## Entidades do banco
+
+### `tbl_clientes`
+
+| Campo | Função |
+| --- | --- |
+| `uuid` | Chave sistêmica oculta ao usuário. |
+| `cliente_id` | ID manual lançado pelo usuário e exibido na interface. |
+| `data_cadastro` | Data ISO de cadastro. |
+| `status` | Ativo, Inativo ou Potencial. |
+| `nome`, `idade`, `telefone`, `email`, `cidade`, `estado`, `redes_sociais` | Dados cadastrais. |
+| `valor_mensalidade`, `vencimento_dia`, `capital_inicial_contrato` | Dados financeiros/contratuais. |
+| `pagamento_valor`, `data_pagamento`, `data_desligamento` | Dados de acompanhamento administrativo. |
+
+### `tbl_operacoes`
+
+| Campo | Função |
+| --- | --- |
+| `uuid` | Chave sistêmica da operação. |
+| `cliente_id` | Relação com `tbl_clientes.cliente_id`. |
+| `data_operacao` | Data ISO da operação. |
+| `capital_inicial_contrato` | Valor herdado do cliente, editável no lançamento. |
+| `n_contratos` | Quantidade de contratos. |
+| `valor_por_contrato` | Valor por ponto/contrato, padrão `0.20`. |
+| `pontos_pos`, `pontos_neg` | Pontos positivos e negativos. |
+| `meta_pontos` | Meta mensal/individual registrada junto da operação, sem alterar lançamentos anteriores. |
+| `percentual_ganho` | Calculado no backend. |
+| `take` | `pontos_pos * n_contratos * valor_por_contrato`. |
+| `stop` | `pontos_neg * n_contratos * valor_por_contrato`. |
+
+### `auditoria`
+
+Registra eventos sistêmicos críticos em JSON: criação/edição de clientes e operações.
+
+## Regras principais
+
+1. O backend executa normalização de números, datas, duplicidade e cálculos.
+2. O frontend apenas coleta dados, formata para PT-BR e apresenta gráficos/tabelas.
+3. Cliente não pode duplicar por `cliente_id`, telefone ou e-mail.
+4. Operação sempre se relaciona por `cliente_id` manual do cliente.
+5. Take e Stop são valores em BRL derivados dos pontos lançados.
+6. A meta de cada operação é gravada diretamente no lançamento para preservar histórico sem regressão; não há aba de meta geral.
+7. A carteira é derivada de operações, sem duplicar saldo em nova aba.
+8. Datas de operação são armazenadas como `YYYY-MM-DD` para evitar deslocamento de fuso entre GAS, Sheets e frontend.
+
+## Fluxo de implantação no GAS
+
+1. Criar projeto Google Apps Script vinculado à planilha.
+2. Criar/colar os arquivos `code.gs` e `Index.html`.
+3. Executar `setupDatabase()` pelo editor GAS para criar/sincronizar abas.
+4. Publicar como WebApp.
+5. Usar o botão **Check** no header antes de releases.
