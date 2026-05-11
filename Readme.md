@@ -41,13 +41,9 @@ Este projeto é um WebApp em Google Apps Script (GAS) para gestão pessoal de cl
 | `take` | `pontos_pos * n_contratos * valor_por_contrato`. |
 | `stop` | `pontos_neg * n_contratos * valor_por_contrato`. |
 
-### `config`
-
-Armazena metas históricas. A meta inicial padrão é **750 pontos**. Novas metas são append-only para não reescrever dados já lançados.
-
 ### `auditoria`
 
-Registra eventos sistêmicos críticos em JSON: criação/edição de clientes, operações e metas.
+Registra eventos sistêmicos críticos em JSON: criação/edição de clientes e operações.
 
 ## Regras principais
 
@@ -56,7 +52,7 @@ Registra eventos sistêmicos críticos em JSON: criação/edição de clientes, 
 3. Cliente não pode duplicar por `cliente_id`, telefone ou e-mail.
 4. Operação sempre se relaciona por `cliente_id` manual do cliente.
 5. Take e Stop são valores em BRL derivados dos pontos lançados.
-6. A meta de cada operação é gravada no lançamento para preservar histórico sem regressão.
+6. A meta de cada operação é gravada diretamente no lançamento para preservar histórico sem regressão; não há aba de meta geral.
 7. A carteira é derivada de operações, sem duplicar saldo em nova aba.
 8. Datas de operação são armazenadas como `YYYY-MM-DD` para evitar deslocamento de fuso entre GAS, Sheets e frontend.
 

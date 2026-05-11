@@ -20,7 +20,6 @@ const SCHEMA = {
     'uuid', 'cliente_id', 'data_operacao', 'capital_inicial_contrato', 'n_contratos', 'valor_por_contrato',
     'pontos_pos', 'pontos_neg', 'meta_pontos', 'percentual_ganho', 'take', 'stop'
   ],
-  config: ['uuid', 'data_cadastro', 'status', 'meta_pontos', 'observacao'],
   auditoria: ['uuid', 'data_iso', 'entidade', 'entidade_id', 'acao', 'payload_json']
 };
 
@@ -35,7 +34,6 @@ function doGet() {
 function setupDatabase() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   Object.keys(SCHEMA).forEach(name => ensureSheet(ss, name));
-  ensureDefaultMeta_();
   return { success: true, message: 'Banco SAE sincronizado com sucesso.', schema: SCHEMA };
 }
 
@@ -330,7 +328,7 @@ function normalizeOperacaoIn_(input, cliente) {
     valor_por_contrato: toNumber_(input.valor_por_contrato, SAE_CONFIG.VALOR_PONTO_PADRAO),
     pontos_pos: toNumber_(input.pontos_pos, 0),
     pontos_neg: toNumber_(input.pontos_neg, 0),
-    meta_pontos: toNumber_(input.meta_pontos, ConfigService.metaAtual().meta_pontos || SAE_CONFIG.META_PONTOS_PADRAO)
+    meta_pontos: toNumber_(input.meta_pontos, SAE_CONFIG.META_PONTOS_PADRAO)
   };
 }
 
@@ -385,36 +383,11 @@ function normalizeOperacaoOut_(o, cliente) {
   };
 }
 
-const ConfigService = {
-  list() {
-    return getRows_('config').map(c => ({ uuid: c.uuid, data_cadastro: toIso_(c.data_cadastro), status: c.status || 'Ativo', meta_pontos: toNumber_(c.meta_pontos, SAE_CONFIG.META_PONTOS_PADRAO), observacao: c.observacao || '' }));
-  },
-
-  metaAtual() {
-    const metas = this.list().filter(m => m.status === 'Ativo');
-    return metas.length ? metas[metas.length - 1] : { meta_pontos: SAE_CONFIG.META_PONTOS_PADRAO };
-  },
-
-  saveMeta(input) {
-    const meta = toNumber_(input && input.meta_pontos, SAE_CONFIG.META_PONTOS_PADRAO);
-    if (meta <= 0) throw new Error('Meta deve ser maior que zero.');
-    const entity = { uuid: Utilities.getUuid(), data_cadastro: todayIso_(), status: 'Ativo', meta_pontos: meta, observacao: text_(input && input.observacao) };
-    writeEntity_('config', entity);
-    audit_('config', entity.uuid, 'create_meta', { meta_pontos: meta });
-    return { success: true, meta: entity };
-  }
-};
-
-function ensureDefaultMeta_() {
-  const rows = getRows_('config');
-  if (rows.length === 0) ConfigService.saveMeta({ meta_pontos: SAE_CONFIG.META_PONTOS_PADRAO, observacao: 'Meta inicial padrão SAE' });
-}
-
 const DashboardService = {
   get(filters) {
     const operacoes = OperacoesService.list(filters || {});
     const clientes = ClientesService.list().filter(c => !filters || !filters.cliente_id || String(c.cliente_id) === String(filters.cliente_id));
-    const metaAtual = ConfigService.metaAtual().meta_pontos;
+    const metaPadrao = SAE_CONFIG.META_PONTOS_PADRAO;
     const linhaMap = {};
     operacoes.forEach(o => {
       const dia = (o.data_operacao || '').slice(0, 10);
@@ -428,10 +401,10 @@ const DashboardService = {
       const mes = (o.data_operacao || '').slice(0, 7) || 'sem-data';
       const key = `${o.cliente_id}|${mes}`;
       if (!barrasMap[key]) {
-        barrasMap[key] = { cliente_id: text_(o.cliente_id), nome: cliente ? cliente.nome : o.cliente_id, mes, pontos: 0, meta: toNumber_(o.meta_pontos, metaAtual) };
+        barrasMap[key] = { cliente_id: text_(o.cliente_id), nome: cliente ? cliente.nome : o.cliente_id, mes, pontos: 0, meta: toNumber_(o.meta_pontos, metaPadrao), mes_label: monthLabel_(mes) };
       }
       barrasMap[key].pontos += o.pontos_pos - o.pontos_neg;
-      barrasMap[key].meta = Math.max(barrasMap[key].meta, toNumber_(o.meta_pontos, metaAtual));
+      barrasMap[key].meta = Math.max(barrasMap[key].meta, toNumber_(o.meta_pontos, metaPadrao));
     });
     const barras = Object.keys(barrasMap).sort().map(k => barrasMap[k]);
     return {
@@ -441,6 +414,14 @@ const DashboardService = {
     };
   }
 };
+
+
+function monthLabel_(yearMonth) {
+  const match = String(yearMonth || '').match(/^(\d{4})-(\d{2})$/);
+  if (!match) return 'Sem data';
+  const nomes = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  return `${nomes[Number(match[2]) - 1]}/${match[1]}`;
+}
 
 function buildResumo_(operacoes) {
   return {
@@ -485,8 +466,7 @@ function getAppData(filters) {
     operacoes: OperacoesService.list(safeFilters),
     dashboard: DashboardService.get(safeFilters),
     carteira: CarteiraService.get(safeFilters),
-    metas: ConfigService.list(),
-    metaAtual: ConfigService.metaAtual()
+    defaults: { meta_pontos_padrao: SAE_CONFIG.META_PONTOS_PADRAO }
   };
 }
 
@@ -494,6 +474,5 @@ function salvarCliente(cliente) { assertInfra_(); return ClientesService.save(cl
 function softDeleteCliente(uuid) { assertInfra_(); return ClientesService.softDelete(uuid); }
 function registrarOperacao(op) { assertInfra_(); return OperacoesService.save(op); }
 function excluirOperacao(uuid) { assertInfra_(); return OperacoesService.remove(uuid); }
-function salvarMeta(meta) { assertInfra_(); return ConfigService.saveMeta(meta); }
 function getDashboardData(filters) { assertInfra_(); return DashboardService.get(filters || {}); }
 function getCarteira(filters) { assertInfra_(); return CarteiraService.get(filters || {}); }
